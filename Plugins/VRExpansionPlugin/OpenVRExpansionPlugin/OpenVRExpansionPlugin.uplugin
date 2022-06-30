@@ -1,0 +1,30 @@
+{
+	"FileVersion": 3,
+	"Version": 5.0,
+	"VersionName": "5.0",
+	"FriendlyName": "OpenVRExpansionPlugin",
+	"Description": "Adds several new Steam/Open VR features & components to UE4",
+	"Category": "VRExpansion",
+	"CreatedBy": "Joshua (MordenTral) Statzer",
+	"CreatedByURL": "http://www.vreue4.com",
+	"DocsURL": "http://www.vreue4.com",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"EnabledByDefault": true,
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "OpenVRExpansionPlugin",
+			"Type": "RunTime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "ProceduralMeshComponent",
+			"Enabled": true
+		}
+	]
+}
