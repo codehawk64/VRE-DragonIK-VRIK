@@ -3,8 +3,6 @@
 #include "ParentRelativeAttachmentComponent.h"
 #include "VRBaseCharacter.h"
 #include "VRCharacter.h"
-#include "IXRTrackingSystem.h"
-#include "VRRootComponent.h"
 //#include "Runtime/Engine/Private/EnginePrivate.h"
 //#include "VRSimpleCharacter.h"
 //#include "VRCharacter.h"
@@ -48,7 +46,7 @@ void UParentRelativeAttachmentComponent::InitializeComponent()
 	Super::InitializeComponent();
 
 	// Update our tracking
-	if (!bUseFeetLocation && IsValid(AttachChar)) // New case to early out and with less calculations
+	if (!bUseFeetLocation && AttachChar.IsValid()) // New case to early out and with less calculations
 	{
 		SetRelativeTransform(AttachChar->VRReplicatedCamera->GetRelativeTransform());
 	}
@@ -63,7 +61,7 @@ void UParentRelativeAttachmentComponent::OnAttachmentChanged()
 	}
 	else
 	{
-		AttachChar = nullptr;
+		AttachChar.Reset();
 	}
 
 	if (AVRBaseCharacter * BaseCharacterOwner = Cast<AVRBaseCharacter>(this->GetOwner()))
@@ -72,7 +70,7 @@ void UParentRelativeAttachmentComponent::OnAttachmentChanged()
 	}
 	else
 	{
-		AttachBaseChar = nullptr;
+		AttachBaseChar.Reset();
 	}
 
 	Super::OnAttachmentChanged();
@@ -101,7 +99,7 @@ void UParentRelativeAttachmentComponent::UpdateTracking(float DeltaTime)
 		SetRelativeTransform(TrackedParentWaist);
 
 	}
-	else if (IsValid(AttachChar)) // New case to early out and with less calculations
+	else if (AttachChar.IsValid()) // New case to early out and with less calculations
 	{
 		SetRelativeRotAndLoc(AttachChar->VRRootReference->curCameraLoc, AttachChar->VRRootReference->StoredCameraRotOffset, DeltaTime);
 	}
@@ -126,7 +124,7 @@ void UParentRelativeAttachmentComponent::UpdateTracking(float DeltaTime)
 				SetRelativeRotAndLoc(curCameraLoc, FRotator::ZeroRotator, DeltaTime);
 		}
 	}
-	else if (IsValid(AttachBaseChar))
+	else if (AttachBaseChar.IsValid())
 	{
 		if (AttachBaseChar->VRReplicatedCamera)
 		{
@@ -156,7 +154,7 @@ void UParentRelativeAttachmentComponent::UpdateTracking(float DeltaTime)
 
 void UParentRelativeAttachmentComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction)
 {
-	if (!bUpdateInCharacterMovement || !IsValid(AttachChar))
+	if (!bUpdateInCharacterMovement || !AttachChar.IsValid())
 	{
 		UpdateTracking(DeltaTime);
 	}

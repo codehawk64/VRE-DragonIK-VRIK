@@ -3,8 +3,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
-//#include "Engine/Engine.h"
+#include "Engine/Engine.h"
 #include "VRExpansionFunctionLibrary.h"
+#include "IXRTrackingSystem.h"
 #include "Components/ShapeComponent.h"
 #include "VRTrackedParentInterface.h"
 #include "ParentRelativeAttachmentComponent.generated.h"
@@ -94,9 +95,9 @@ public:
 	}
 
 	UPROPERTY()
-		TObjectPtr<AVRCharacter> AttachChar;
+		TWeakObjectPtr<AVRCharacter> AttachChar;
 	UPROPERTY()
-		TObjectPtr<AVRBaseCharacter> AttachBaseChar;
+		TWeakObjectPtr<AVRBaseCharacter> AttachBaseChar;
 
 	void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction) override;
 
@@ -221,7 +222,7 @@ public:
 	// Get combined direction angle up
 	void GetEstShoulderRotation(FRotator &InputHMDRotation, FVector &InputHMDLocation)
 	{
-		/*float WorldToMeters = GetWorld() ? GetWorld()->GetWorldSettings()->WorldToMeters : 100.0f;
+		float WorldToMeters = GetWorld() ? GetWorld()->GetWorldSettings()->WorldToMeters : 100.0f;
 
 		// Position shoulder (neck)
 		FTransform shoulder = FTransform::Identity;
@@ -235,7 +236,7 @@ public:
 
 		//DrawDebugSphere(GetWorld(), (shoulder * GetAttachParent()->GetComponentTransform()).GetLocation(), 4.0f, 32, FColor::White);
 		return;
-		*/
+
 
 		/*if (IsLocallyControlled() && GEngine->XRSystem.IsValid())
 		{

@@ -4,9 +4,6 @@
 #include "GripMotionControllerComponent.h"
 #include "VRGripInterface.h"
 #include "Engine/BlueprintGeneratedClass.h"
-#include "Components/PrimitiveComponent.h"
-#include "GameFramework/Actor.h"
-#include "Net/UnrealNetwork.h"
 #include "Engine/NetDriver.h"
 
  
@@ -138,7 +135,7 @@ void UVRGripScriptBase::PreReplication(IRepChangedPropertyTracker & ChangedPrope
 		{
 			for (UVRGripScriptBase* Script : GripLogicScripts)
 			{
-				if (Script && IsValid(Script))
+				if (Script && !Script->IsPendingKill())
 				{
 					Script->PreReplication(*((IRepChangedPropertyTracker *)NetDriver->FindOrCreateRepChangedPropertyTracker(Script).Get()));
 				}

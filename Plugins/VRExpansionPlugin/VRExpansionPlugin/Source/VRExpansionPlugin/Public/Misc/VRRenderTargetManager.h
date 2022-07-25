@@ -1,14 +1,26 @@
 #pragma once
+
+#include "Serialization/ArchiveSaveCompressedProxy.h"
+#include "Serialization/ArchiveLoadCompressedProxy.h"
+
+//#include "RenderUtils.h"
+#include "GeomTools.h"
+//#include "DrawDebugHelpers.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "Kismet/KismetMathLibrary.h"
+#include "Kismet/KismetRenderingLibrary.h"
+#include "Engine/CanvasRenderTarget2D.h"
+//#include "Net/Core/PushModel/PushModel.h"
 #include "TimerManager.h"
+#include "GameFramework/PlayerController.h"
+#include "Engine/Canvas.h"
+#include "Materials/Material.h"
+//#include "ImageWrapper/Public/IImageWrapper.h"
+//#include "ImageWrapper/Public/IImageWrapperModule.h"
+
 #include "VRRenderTargetManager.generated.h"
 
 class UVRRenderTargetManager;
-class UCanvasRenderTarget2D;
-class UCanvas;
-class UTexture2D;
-class UMaterial;
-class APlayerController;
-
 
 // #TODO: Dirty rects so don't have to send entire texture?
 
@@ -42,13 +54,6 @@ public:
 	//	bool bJPG;
 	//UPROPERTY(Transient)
 	EPixelFormat PixelFormat;
-
-	FBPVRReplicatedTextureStore()
-	{
-		Width = 0;
-		Height = 0;
-		bIsZipped = false;
-	}
 
 	void Reset()
 	{
@@ -145,16 +150,6 @@ public:
 	UPROPERTY()
 		TSoftObjectPtr<UMaterial> Material;
 
-	FRenderManagerOperation()
-	{
-		OwnerID = 0;
-		OperationType = ERenderManagerOperationType::Op_LineDraw;
-		Color = FColor::White;
-		P1 = FVector2D::ZeroVector;
-		P2 = FVector2D::ZeroVector;
-		Thickness = 0;
-	}
-
 	bool NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess);
 };
 template<>
@@ -179,7 +174,7 @@ public:
 	ARenderTargetReplicationProxy(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	UPROPERTY(Replicated, ReplicatedUsing = OnRep_Manager)
-		TObjectPtr<UVRRenderTargetManager> OwningManager;
+		TWeakObjectPtr<UVRRenderTargetManager> OwningManager;
 
 	UPROPERTY(Replicated)
 		uint32 OwnersID;
@@ -250,10 +245,10 @@ struct FClientRepData {
 	GENERATED_BODY()
 
 	UPROPERTY()
-		TObjectPtr<APlayerController> PC;
+		TWeakObjectPtr<APlayerController> PC;
 
 	UPROPERTY()
-		TObjectPtr<ARenderTargetReplicationProxy> ReplicationProxy;
+		TWeakObjectPtr<ARenderTargetReplicationProxy> ReplicationProxy;
 
 	UPROPERTY()
 		bool bIsRelevant;
@@ -263,8 +258,6 @@ struct FClientRepData {
 
 	FClientRepData() 
 	{
-		PC = nullptr;
-		ReplicationProxy = nullptr;
 		bIsRelevant = false;
 		bIsDirty = false;
 	}
@@ -288,7 +281,7 @@ public:
 	uint32 OwnerIDCounter;
 
 	UPROPERTY(Transient)
-		TObjectPtr<ARenderTargetReplicationProxy> LocalProxy;
+		TWeakObjectPtr<ARenderTargetReplicationProxy> LocalProxy;
 
 	TArray<FRenderManagerOperation> RenderOperationStore;
 	TArray<FRenderManagerOperation> LocalRenderOperationStore;
@@ -341,7 +334,7 @@ public:
 		int32 MaxBytesPerSecondRate;
 
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "RenderTargetManager")
-		TObjectPtr<UCanvasRenderTarget2D> RenderTarget;
+		UCanvasRenderTarget2D* RenderTarget;
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "RenderTargetManager")
 		int32 RenderTargetWidth;
@@ -384,6 +377,6 @@ public:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 protected:
-	TQueue<FRenderDataStore *> RenderDataQueue;
+	TQueue<FRenderDataStore*> RenderDataQueue;
 
 };

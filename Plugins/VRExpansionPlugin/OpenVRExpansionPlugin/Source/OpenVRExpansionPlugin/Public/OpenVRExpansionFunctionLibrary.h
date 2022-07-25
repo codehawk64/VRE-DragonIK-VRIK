@@ -2,7 +2,15 @@
 
 #pragma once
 #include "CoreMinimal.h"
+#include "UObject/ObjectMacros.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
+#include "UObject/Object.h"
+#include "Engine/Texture.h"
+#include "Engine/EngineTypes.h"
+#include "RHI.h"
+//#include "EngineMinimal.h"
+#include "IMotionController.h"
+//#include "VRBPDatatypes.h"
 
 //Re-defined here as I can't load ISteamVRPlugin on non windows platforms
 // Make sure to update if it changes
@@ -22,9 +30,17 @@ static FName SteamVRSystemName(TEXT("SteamVR"));
 
 #endif // STEAMVR_SUPPORTED_PLATFORM
 
-#include "OpenVRExpansionFunctionLibrary.generated.h"
+#include "ProceduralMeshComponent.h"
+#include "KismetProceduralMeshLibrary.h"
+// Or procedural mesh component throws an error....
+//#include "PhysicsEngine/ConvexElem.h" // Fixed in 4.13.1?
 
-class UProceduralMeshComponent;
+//#include "HeadMountedDisplay.h" 
+//#include "HeadMountedDisplayFunctionLibrary.h"
+#include "HeadMountedDisplayFunctionLibrary.h"
+#include "IHeadMountedDisplay.h"
+
+#include "OpenVRExpansionFunctionLibrary.generated.h"
 
 //General Advanced Sessions Log
 DECLARE_LOG_CATEGORY_EXTERN(OpenVRExpansionFunctionLibraryLog, Log, All);
@@ -703,7 +719,7 @@ public:
 		vr::Texture_t VRTexture;
 
 		if (Texture)
-			VRTexture.handle = Texture->GetResource()->TextureRHI->GetNativeResource();
+			VRTexture.handle = Texture->Resource->TextureRHI->GetNativeResource();
 		else
 			VRTexture.handle = NULL;
 

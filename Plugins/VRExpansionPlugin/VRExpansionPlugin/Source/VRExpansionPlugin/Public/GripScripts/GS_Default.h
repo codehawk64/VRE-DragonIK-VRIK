@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "VRGripScriptBase.h"
+#include "GameFramework/WorldSettings.h"
 #include "GS_Default.generated.h"
 
 

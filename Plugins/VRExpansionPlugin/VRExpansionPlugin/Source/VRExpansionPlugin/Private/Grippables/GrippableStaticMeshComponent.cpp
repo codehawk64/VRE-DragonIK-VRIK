@@ -1,9 +1,6 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "Grippables/GrippableStaticMeshComponent.h"
-#include "GripMotionControllerComponent.h"
-#include "VRExpansionFunctionLibrary.h"
-#include "GripScripts/VRGripScriptBase.h"
 #include "Net/UnrealNetwork.h"
 
   //=============================================================================
@@ -30,15 +27,13 @@ UGrippableStaticMeshComponent::UGrippableStaticMeshComponent(const FObjectInitia
 	//this->bReplicates = true;
 
 	bRepGripSettingsAndGameplayTags = true;
-	bReplicateGripScripts = false;
 }
 
 void UGrippableStaticMeshComponent::GetLifetimeReplicatedProps(TArray< class FLifetimeProperty > & OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	
-	DOREPLIFETIME_CONDITION(UGrippableStaticMeshComponent, GripLogicScripts, COND_Custom);
-	DOREPLIFETIME(UGrippableStaticMeshComponent, bReplicateGripScripts);
+	DOREPLIFETIME/*_CONDITION*/(UGrippableStaticMeshComponent, GripLogicScripts);// , COND_Custom);
 	DOREPLIFETIME(UGrippableStaticMeshComponent, bRepGripSettingsAndGameplayTags);
 	DOREPLIFETIME(UGrippableStaticMeshComponent, bReplicateMovement);
 	DOREPLIFETIME_CONDITION(UGrippableStaticMeshComponent, VRGripInterfaceSettings, COND_Custom);
@@ -52,7 +47,6 @@ void UGrippableStaticMeshComponent::PreReplication(IRepChangedPropertyTracker & 
 	// Don't replicate if set to not do it
 	DOREPLIFETIME_ACTIVE_OVERRIDE(UGrippableStaticMeshComponent, VRGripInterfaceSettings, bRepGripSettingsAndGameplayTags);
 	DOREPLIFETIME_ACTIVE_OVERRIDE(UGrippableStaticMeshComponent, GameplayTags, bRepGripSettingsAndGameplayTags);
-	DOREPLIFETIME_ACTIVE_OVERRIDE(UGrippableStaticMeshComponent, GripLogicScripts, bReplicateGripScripts);
 
 	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeLocation, bReplicateMovement);
 	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeRotation, bReplicateMovement);
@@ -63,14 +57,11 @@ bool UGrippableStaticMeshComponent::ReplicateSubobjects(UActorChannel* Channel, 
 {
 	bool WroteSomething = Super::ReplicateSubobjects(Channel, Bunch, RepFlags);
 
-	if (bReplicateGripScripts)
+	for (UVRGripScriptBase* Script : GripLogicScripts)
 	{
-		for (UVRGripScriptBase* Script : GripLogicScripts)
+		if (Script && !Script->IsPendingKill())
 		{
-			if (Script && IsValid(Script))
-			{
-				WroteSomething |= Channel->ReplicateSubobject(Script, *Bunch, *RepFlags);
-			}
+			WroteSomething |= Channel->ReplicateSubobject(Script, *Bunch, *RepFlags);
 		}
 	}
 
@@ -263,7 +254,7 @@ void UGrippableStaticMeshComponent::PreDestroyFromReplication()
 		if (UObject *SubObject = GripLogicScripts[i])
 		{
 			SubObject->PreDestroyFromReplication();
-			SubObject->MarkAsGarbage();
+			SubObject->MarkPendingKill();
 		}
 	}
 
@@ -272,14 +263,11 @@ void UGrippableStaticMeshComponent::PreDestroyFromReplication()
 
 void UGrippableStaticMeshComponent::GetSubobjectsWithStableNamesForNetworking(TArray<UObject*> &ObjList)
 {
-	if (bReplicateGripScripts)
+	for (int32 i = 0; i < GripLogicScripts.Num(); ++i)
 	{
-		for (int32 i = 0; i < GripLogicScripts.Num(); ++i)
+		if (UObject *SubObject = GripLogicScripts[i])
 		{
-			if (UObject* SubObject = GripLogicScripts[i])
-			{
-				ObjList.Add(SubObject);
-			}
+			ObjList.Add(SubObject);
 		}
 	}
 }
@@ -303,7 +291,7 @@ void UGrippableStaticMeshComponent::OnComponentDestroyed(bool bDestroyingHierarc
 	{
 		if (UObject *SubObject = GripLogicScripts[i])
 		{
-			SubObject->MarkAsGarbage();
+			SubObject->MarkPendingKill();
 		}
 	}
 

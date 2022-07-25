@@ -251,30 +251,22 @@ struct FBPFriendPresenceInfo
 public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Online|Friend")
-		bool bIsOnline = false;
+		bool bIsOnline;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Online|Friend")
-		bool bIsPlaying = false;
+		bool bIsPlaying;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Online|Friend")
-		bool bIsPlayingThisGame = false;
+		bool bIsPlayingThisGame;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Online|Friend")
-		bool bIsJoinable = false;
+		bool bIsJoinable;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Online|Friend")
-		bool bHasVoiceSupport = false;
+		bool bHasVoiceSupport;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Online|Friend")
-		EBPOnlinePresenceState PresenceState = EBPOnlinePresenceState::Offline;
+		EBPOnlinePresenceState PresenceState;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Online|Friend")
 		FString StatusString;
-
-	FBPFriendPresenceInfo()
-	{
-		bIsOnline = false;
-		bIsPlaying = false;
-		bIsPlayingThisGame = false;
-		bIsJoinable = false;
-		bHasVoiceSupport = false;
-		PresenceState = EBPOnlinePresenceState::Offline;
-	}
 };
+
+
 
 USTRUCT(BlueprintType)
 struct FBPFriendInfo
@@ -288,21 +280,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Online|Friend")
 	FString RealName;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Online|Friend")
-	EBPOnlinePresenceState OnlineState = EBPOnlinePresenceState::Offline;
+	EBPOnlinePresenceState OnlineState;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Online|Friend")
 	FBPUniqueNetId UniqueNetId;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Online|Friend")
-	bool bIsPlayingSameGame = false;
+	bool bIsPlayingSameGame;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Online|Friend")
 	FBPFriendPresenceInfo PresenceInfo;
-
-	FBPFriendInfo()
-	{
-		OnlineState = EBPOnlinePresenceState::Offline;
-		bIsPlayingSameGame = false;
-	}
 };
-
 
 /** The types of comparison operations for a given search query */
 // Used to compare session properties

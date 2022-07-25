@@ -3,10 +3,25 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "VRGlobalSettings.h"
+#include "Engine/Classes/GameFramework/PlayerController.h"
+#include "Engine/Classes/GameFramework/PlayerState.h"
+#include "Engine/Player.h"
+#include "PhysicsEngine/PhysicsSettings.h"
+#include "Components/SkeletalMeshComponent.h"
+
+#if PHYSICS_INTERFACE_PHYSX
+#include "Physics/PhysScene_PhysX.h"
+#include "PhysXPublicCore.h"
+//#include "PhysXPublic.h"
+#include "PhysXIncludes.h"
+#endif
+
 #include "Physics/PhysicsInterfaceUtils.h"
+#include "PhysicsInterfaceTypesCore.h"
 #include "PhysicsReplication.h"
 
-
+#include "Misc/ScopeRWLock.h"
 
 #include "GrippablePhysicsReplication.generated.h"
 //#include "GrippablePhysicsReplication.generated.h"
@@ -23,31 +38,15 @@
 	ECVF_ReadOnly);*/
 
 //#if PHYSICS_INTERFACE_PHYSX
-struct FAsyncPhysicsRepCallbackDataVR;
-class FPhysicsReplicationAsyncCallbackVR;
 
 class FPhysicsReplicationVR : public FPhysicsReplication
 {
 public:
 
-	FPhysScene* PhysSceneVR;
-
 	FPhysicsReplicationVR(FPhysScene* PhysScene);
-	~FPhysicsReplicationVR();
 	static bool IsInitialized();
 
 	virtual void OnTick(float DeltaSeconds, TMap<TWeakObjectPtr<UPrimitiveComponent>, FReplicatedPhysicsTarget>& ComponentsToTargets) override;
-	virtual bool ApplyRigidBodyState(float DeltaSeconds, FBodyInstance* BI, FReplicatedPhysicsTarget& PhysicsTarget, const FRigidBodyErrorCorrection& ErrorCorrection, const float PingSecondsOneWay) override;
-#if WITH_CHAOS
-
-	static void ApplyAsyncDesiredStateVR(float DeltaSeconds, const FAsyncPhysicsRepCallbackDataVR* Input);
-
-	FPhysicsReplicationAsyncCallbackVR* AsyncCallbackServer;
-
-	void PrepareAsyncData_ExternalVR(const FRigidBodyErrorCorrection& ErrorCorrection);	//prepare async data for writing. Call on external thread (i.e. game thread)
-	FAsyncPhysicsRepCallbackDataVR* CurAsyncDataVR;	//async data being written into before we push into callback
-	friend FPhysicsReplicationAsyncCallback;
-#endif
 };
 
 class IPhysicsReplicationFactoryVR : public IPhysicsReplicationFactory
@@ -65,6 +64,87 @@ public:
 			delete PhysicsReplication;
 	}
 };
+
+struct FContactModBodyInstancePair
+{
+	bool bBody1IgnoreEntireActor;
+	bool bBody2IgnoreEntireActor;
+
+	FPhysicsActorHandle Actor1;
+	FPhysicsActorHandle Actor2;
+
+	FORCEINLINE bool operator==(const FContactModBodyInstancePair &Other) const
+	{
+		return (
+			(Actor1 == Other.Actor1 || Actor1 == Other.Actor2) &&
+			(Actor2 == Other.Actor2 || Actor2 == Other.Actor1)
+			);
+	}
+};
+
+#if PHYSICS_INTERFACE_PHYSX
+class FContactModifyCallbackVR : public FContactModifyCallback
+{
+public:
+
+	TArray<FContactModBodyInstancePair> ContactsToIgnore;
+	FRWLock RWAccessLock;
+
+	void onContactModify(PxContactModifyPair* const pairs, PxU32 count) override;
+
+	virtual ~FContactModifyCallbackVR()
+	{
+
+	}
+};
+
+class FCCDContactModifyCallbackVR : public FCCDContactModifyCallback
+{
+public:
+
+	TArray<FContactModBodyInstancePair> ContactsToIgnore;
+	FRWLock RWAccessLock;
+
+	void onCCDContactModify(PxContactModifyPair* const pairs, PxU32 count) override;
+
+	virtual ~FCCDContactModifyCallbackVR()
+	{
+
+	}
+};
+
+class IContactModifyCallbackFactoryVR : public IContactModifyCallbackFactory
+{
+public:
+
+	virtual FContactModifyCallback* Create(FPhysScene* OwningPhysScene) override
+	{
+		return new FContactModifyCallbackVR();
+	}
+
+	virtual void Destroy(FContactModifyCallback* ContactCallback) override
+	{
+		if (ContactCallback)
+			delete ContactCallback;
+	}
+};
+
+class ICCDContactModifyCallbackFactoryVR : public ICCDContactModifyCallbackFactory
+{
+public:
+
+	virtual FCCDContactModifyCallback* Create(FPhysScene* OwningPhysScene) override
+	{
+		return new FCCDContactModifyCallbackVR();
+	}
+
+	virtual void Destroy(FCCDContactModifyCallback* ContactCallback) override
+	{
+		if (ContactCallback)
+			delete ContactCallback;
+	}
+};
+#endif
 
 //#endif
 

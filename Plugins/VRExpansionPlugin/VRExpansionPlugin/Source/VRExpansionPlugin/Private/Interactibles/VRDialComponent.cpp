@@ -2,7 +2,6 @@
 
 #include "Interactibles/VRDialComponent.h"
 #include "VRExpansionFunctionLibrary.h"
-#include "GripMotionControllerComponent.h"
 #include "Net/UnrealNetwork.h"
 
   //=============================================================================

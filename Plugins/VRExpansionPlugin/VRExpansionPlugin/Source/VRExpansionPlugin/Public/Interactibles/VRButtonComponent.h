@@ -3,8 +3,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GripMotionControllerComponent.h"
+#include "MotionControllerComponent.h"
+#include "VRGripInterface.h"
 #include "Components/StaticMeshComponent.h"
 #include "VRInteractibleFunctionLibrary.h"
+//#include "VRBPDatatypes.h"
+//#include "VRExpansionFunctionLibrary.h"
 #include "VRButtonComponent.generated.h"
 
 /**
@@ -99,13 +104,13 @@ public:
 
 	// On the button state changing, keep in mind that InteractingActor can be invalid if manually setting the state
 	UPROPERTY(BlueprintReadOnly, Category = "VRButtonComponent")
-		TObjectPtr<UPrimitiveComponent> LocalInteractingComponent;
+		TWeakObjectPtr<UPrimitiveComponent> LocalInteractingComponent;
 
 	UPROPERTY(BlueprintReadOnly, Category = "VRButtonComponent")
-		TObjectPtr<AActor> LocalLastInteractingActor;
+		TWeakObjectPtr<AActor> LocalLastInteractingActor;
 
 	UPROPERTY(BlueprintReadOnly, Category = "VRButtonComponent")
-		TObjectPtr<UPrimitiveComponent> LocalLastInteractingComponent;
+		TWeakObjectPtr<UPrimitiveComponent> LocalLastInteractingComponent;
 
 	// Whether the button is enabled or not (can be interacted with)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VRButtonComponent")
@@ -182,8 +187,35 @@ protected:
 	FVector InitialComponentLoc;
 	float LastToggleTime;
 
-	float GetAxisValue(FVector CheckLocation);
+	inline float GetAxisValue(FVector CheckLocation)
+	{
+		switch (ButtonAxis)
+		{
+		case EVRInteractibleAxis::Axis_X:
+			return CheckLocation.X; break;
+		case EVRInteractibleAxis::Axis_Y:
+			return CheckLocation.Y; break;
+		case EVRInteractibleAxis::Axis_Z:
+			return CheckLocation.Z; break;
+		default:return 0.0f; break;
+		}
+	}
 
-	FVector SetAxisValue(float SetValue);
+	inline FVector SetAxisValue(float SetValue)
+	{
+		FVector vec = FVector::ZeroVector;
+
+		switch (ButtonAxis)
+		{
+		case EVRInteractibleAxis::Axis_X:
+			vec.X = SetValue; break;
+		case EVRInteractibleAxis::Axis_Y:
+			vec.Y = SetValue; break;
+		case EVRInteractibleAxis::Axis_Z:
+			vec.Z = SetValue; break;
+		}
+
+		return vec;
+	}
 
 };

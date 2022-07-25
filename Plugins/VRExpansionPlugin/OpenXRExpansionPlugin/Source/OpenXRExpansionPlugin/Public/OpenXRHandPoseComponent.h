@@ -15,7 +15,7 @@
 #include "OpenXRHandPoseComponent.generated.h"
 
 USTRUCT(BlueprintType, Category = "VRExpansionFunctions|OpenXR|HandSkeleton")
-struct OPENXREXPANSIONPLUGIN_API FBPXRSkeletalRepContainer
+struct OPENXREXPANSIONPLUGIN_API FBPSkeletalRepContainer
 {
 	GENERATED_BODY()
 public:
@@ -37,7 +37,7 @@ public:
 		uint8 BoneCount;
 
 
-	FBPXRSkeletalRepContainer()
+	FBPSkeletalRepContainer()
 	{
 		TargetHand = EVRSkeletalHandIndex::EActionHandIndex_Left;
 		bAllowDeformingMesh = false;
@@ -51,13 +51,13 @@ public:
 	}
 
 	void CopyForReplication(FBPOpenXRActionSkeletalData& Other);
-	static void CopyReplicatedTo(const FBPXRSkeletalRepContainer& Container, FBPOpenXRActionSkeletalData& Other);
+	static void CopyReplicatedTo(const FBPSkeletalRepContainer& Container, FBPOpenXRActionSkeletalData& Other);
 
 	bool NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess);
 };
 
 template<>
-struct TStructOpsTypeTraits< FBPXRSkeletalRepContainer > : public TStructOpsTypeTraitsBase2<FBPXRSkeletalRepContainer>
+struct TStructOpsTypeTraits< FBPSkeletalRepContainer > : public TStructOpsTypeTraitsBase2<FBPSkeletalRepContainer>
 {
 	enum
 	{
@@ -195,7 +195,7 @@ public:
 		// I like epics new authority check more than mine
 		const AActor* MyOwner = GetOwner();
 		const APawn* MyPawn = Cast<APawn>(MyOwner);
-		return MyPawn ? MyPawn->IsLocallyControlled() : (MyOwner && MyOwner->GetLocalRole() == ENetRole::ROLE_Authority);
+		return MyPawn ? MyPawn->IsLocallyControlled() : (MyOwner && MyOwner->Role == ENetRole::ROLE_Authority);
 #endif
 	}
 
@@ -213,13 +213,13 @@ public:
 		TArray<FBPOpenXRActionSkeletalData> HandSkeletalActions;
 
 	UPROPERTY(Replicated, Transient, ReplicatedUsing = OnRep_SkeletalTransformLeft)
-		FBPXRSkeletalRepContainer LeftHandRep;
+		FBPSkeletalRepContainer LeftHandRep;
 
 	UPROPERTY(Replicated, Transient, ReplicatedUsing = OnRep_SkeletalTransformRight)
-		FBPXRSkeletalRepContainer RightHandRep;
+		FBPSkeletalRepContainer RightHandRep;
 
 	UFUNCTION(Unreliable, Server, WithValidation)
-		void Server_SendSkeletalTransforms(const FBPXRSkeletalRepContainer& SkeletalInfo);
+		void Server_SendSkeletalTransforms(const FBPSkeletalRepContainer& SkeletalInfo);
 
 	bool bLerpingPositionLeft;
 	bool bReppedOnceLeft;
@@ -259,7 +259,7 @@ public:
 			{
 				HandSkeletalActions[i].OldSkeletalTransforms = HandSkeletalActions[i].SkeletalTransforms;
 
-				FBPXRSkeletalRepContainer::CopyReplicatedTo(LeftHandRep, HandSkeletalActions[i]);
+				FBPSkeletalRepContainer::CopyReplicatedTo(LeftHandRep, HandSkeletalActions[i]);
 				
 				if(bSmoothReplicatedSkeletalData)
 					LeftHandRepManager.NotifyNewData(HandSkeletalActions[i], ReplicationRateForSkeletalAnimations);
@@ -277,7 +277,7 @@ public:
 			{
 				HandSkeletalActions[i].OldSkeletalTransforms = HandSkeletalActions[i].SkeletalTransforms;
 
-				FBPXRSkeletalRepContainer::CopyReplicatedTo(RightHandRep, HandSkeletalActions[i]);
+				FBPSkeletalRepContainer::CopyReplicatedTo(RightHandRep, HandSkeletalActions[i]);
 				
 				if (bSmoothReplicatedSkeletalData)
 					RightHandRepManager.NotifyNewData(HandSkeletalActions[i], ReplicationRateForSkeletalAnimations);

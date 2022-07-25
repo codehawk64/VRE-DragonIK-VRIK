@@ -2,10 +2,11 @@
 
 #pragma once
 #include "CoreMinimal.h"
+//#include "IMotionController.h"
 #include "VRBPDatatypes.h"
-//#include "UObject/ObjectMacros.h"
-//#include "Engine/EngineTypes.h"
-//#include "UObject/ScriptInterface.h"
+#include "UObject/ObjectMacros.h"
+#include "Engine/EngineTypes.h"
+#include "UObject/ScriptInterface.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "GameplayTagContainer.h"
 
@@ -52,13 +53,6 @@ public:
 	// The initial transform in relative space of the grip to us - Set in OnGripInit
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "InteractibleData")
 	FTransform ReversedRelativeTransform;
-
-	FBPVRInteractibleBaseData()
-	{
-		InitialInteractorLocation = FVector::ZeroVector;
-		InitialGripLoc = FVector::ZeroVector;
-		InitialDropLocation = FVector::ZeroVector;
-	}
 };
 
 UCLASS()

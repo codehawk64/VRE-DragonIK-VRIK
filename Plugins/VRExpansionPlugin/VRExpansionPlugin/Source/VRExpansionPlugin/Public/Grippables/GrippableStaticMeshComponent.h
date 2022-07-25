@@ -3,16 +3,15 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GripMotionControllerComponent.h"
 #include "VRBPDatatypes.h"
 #include "VRGripInterface.h"
+#include "VRExpansionFunctionLibrary.h"
 #include "GameplayTagContainer.h"
 #include "GameplayTagAssetInterface.h"
-#include "Components/StaticMeshComponent.h"
+#include "GripScripts/VRGripScriptBase.h"
 #include "Engine/ActorChannel.h"
 #include "GrippableStaticMeshComponent.generated.h"
-
-class UVRGripScriptBase;
-class UGripMotionControllerComponent;
 
 /**
 *
@@ -37,13 +36,7 @@ public:
 
 	/** Overridden to return requirements tags */
 	UPROPERTY(EditAnywhere, Replicated, BlueprintReadOnly, Instanced, Category = "VRGripInterface")
-		TArray<TObjectPtr<UVRGripScriptBase>> GripLogicScripts;
-
-	// If true then the grip script array will be considered for replication, if false then it will not
-	// This is an optimization for when you have a lot of grip scripts in use, you can toggle this off in cases
-	// where the object will never have a replicating script
-	UPROPERTY(EditAnywhere, Replicated, BlueprintReadWrite, Category = "VRGripInterface")
-		bool bReplicateGripScripts;
+		TArray<class UVRGripScriptBase *> GripLogicScripts;
 
 	bool ReplicateSubobjects(UActorChannel* Channel, class FOutBunch *Bunch, FReplicationFlags *RepFlags) override;
 
@@ -56,18 +49,22 @@ public:
 		void SetGripPriority(int NewGripPriority);
 
 	// Called when a object is gripped
+	// If you override the OnGrip event then you will need to call the parent implementation or this event will not fire!!
 	UPROPERTY(BlueprintAssignable, Category = "Grip Events")
 		FVROnGripSignature OnGripped;
 
 	// Called when a object is dropped
+	// If you override the OnGrip event then you will need to call the parent implementation or this event will not fire!!
 	UPROPERTY(BlueprintAssignable, Category = "Grip Events")
 		FVROnDropSignature OnDropped;
 
 	// Called when an object we hold is secondary gripped
+	// If you override the OnGrip event then you will need to call the parent implementation or this event will not fire!!
 	UPROPERTY(BlueprintAssignable, Category = "Grip Events")
 		FVROnGripSignature OnSecondaryGripAdded;
 
 	// Called when an object we hold is secondary dropped
+	// If you override the OnGrip event then you will need to call the parent implementation or this event will not fire!!
 	UPROPERTY(BlueprintAssignable, Category = "Grip Events")
 		FVROnGripSignature OnSecondaryGripRemoved;
 

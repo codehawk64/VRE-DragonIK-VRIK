@@ -332,22 +332,18 @@ UTexture2D * UAdvancedSteamFriendsLibrary::GetSteamFriendAvatar(const FBPUniqueN
 
 			UTexture2D* Avatar = UTexture2D::CreateTransient(Width, Height, PF_R8G8B8A8);
 			// Switched to a Memcpy instead of byte by byte transer
+			uint8* MipData = (uint8*)Avatar->PlatformData->Mips[0].BulkData.Lock(LOCK_READ_WRITE);
+			FMemory::Memcpy(MipData, (void*)oAvatarRGBA, Height * Width * 4);
+			Avatar->PlatformData->Mips[0].BulkData.Unlock();
 
-			if (FTexturePlatformData* PlatformData = Avatar->GetPlatformData())
-			{
-				uint8* MipData = (uint8*)PlatformData->Mips[0].BulkData.Lock(LOCK_READ_WRITE);
-				FMemory::Memcpy(MipData, (void*)oAvatarRGBA, Height * Width * 4);
-				PlatformData->Mips[0].BulkData.Unlock();
+			// Original implementation was missing this!!
+			// the hell man......
+			delete[] oAvatarRGBA;
 
-				// Original implementation was missing this!!
-				// the hell man......
-				delete[] oAvatarRGBA;
-
-				//Setting some Parameters for the Texture and finally returning it
-				PlatformData->SetNumSlices(1);
-				Avatar->NeverStream = true;
-				//Avatar->CompressionSettings = TC_EditorIcon;
-			}
+			//Setting some Parameters for the Texture and finally returning it
+			Avatar->PlatformData->SetNumSlices(1);
+			Avatar->NeverStream = true;
+			//Avatar->CompressionSettings = TC_EditorIcon;
 
 			Avatar->UpdateResource();
 
@@ -399,18 +395,7 @@ bool UAdvancedSteamFriendsLibrary::FilterText(FString TextToFilter, EBPTextFilte
 			id = *((uint64*)TextSourceID.UniqueNetId->GetBytes());
 		}
 		
-		// MAC is bugged with current steam version according to epic, they forced it to be the old steam ver
-#if PLATFORM_MAC
-			// Filters the provided input message and places the filtered result into pchOutFilteredText.
-			//   pchOutFilteredText is where the output will be placed, even if no filtering or censoring is performed
-			//   nByteSizeOutFilteredText is the size (in bytes) of pchOutFilteredText
-			//   pchInputText is the input string that should be filtered, which can be ASCII or UTF-8
-			//   bLegalOnly should be false if you want profanity and legally required filtering (where required) and true if you want legally required filtering only
-			//   Returns the number of characters (not bytes) filtered.
-			int FilterCount = SteamUtils()->FilterText(OutText, BufferLen, TCHAR_TO_ANSI(*TextToFilter), Context == EBPTextFilteringContext::FContext_GameContent);
-#else
-		int FilterCount = SteamUtils()->FilterText((ETextFilteringContext)Context, id, TCHAR_TO_ANSI(*TextToFilter), OutText, BufferLen);
-#endif
+		int FilterCount = SteamUtils()->FilterText(OutText, BufferLen, TCHAR_TO_ANSI(*TextToFilter), Context == EBPTextFilteringContext::FContext_GameContent);
 
 		if (FilterCount > 0)
 		{

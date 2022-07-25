@@ -1,9 +1,6 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "Interactibles/VRButtonComponent.h"
-#include "Net/UnrealNetwork.h"
-//#include "VRGripInterface.h"
-#include "GripMotionControllerComponent.h"
 #include "GameFramework/Character.h"
 
   //=============================================================================
@@ -87,13 +84,13 @@ void UVRButtonComponent::TickComponent(float DeltaTime, enum ELevelTick TickType
 
 	const float WorldTime = GetWorld()->GetRealTimeSeconds();
 
-	if (IsValid(LocalInteractingComponent))
+	if (LocalInteractingComponent.IsValid())
 	{
 		// If button was set to inactive during use
 		if (!bIsEnabled)
 		{
 			// Remove interacting component and return, next tick will begin lerping back
-			LocalInteractingComponent = nullptr;
+			LocalInteractingComponent.Reset();
 			return;
 		}
 
@@ -117,7 +114,7 @@ void UVRButtonComponent::TickComponent(float DeltaTime, enum ELevelTick TickType
 			{
 				if ((StateChangeAuthorityType == EVRStateChangeAuthorityType::CanChangeState_All) ||
 					(StateChangeAuthorityType == EVRStateChangeAuthorityType::CanChangeState_Server && GetNetMode() < ENetMode::NM_Client) ||
-					(StateChangeAuthorityType == EVRStateChangeAuthorityType::CanChangeState_Owner && IsValid(LocalLastInteractingActor) && LocalLastInteractingActor->HasLocalNetOwner()))
+					(StateChangeAuthorityType == EVRStateChangeAuthorityType::CanChangeState_Owner && LocalLastInteractingActor.IsValid() && LocalLastInteractingActor->HasLocalNetOwner()))
 				{
 					if (!bToggledThisTouch && NewDepth <= (-ButtonEngageDepth) + KINDA_SMALL_NUMBER && (WorldTime - LastToggleTime) >= MinTimeBetweenEngaging)
 					{
@@ -141,8 +138,8 @@ void UVRButtonComponent::TickComponent(float DeltaTime, enum ELevelTick TickType
 			OnButtonEndInteraction.Broadcast(LocalLastInteractingActor.Get(), LocalLastInteractingComponent.Get());
 			ReceiveButtonEndInteraction(LocalLastInteractingActor.Get(), LocalLastInteractingComponent.Get());
 
-			LocalInteractingComponent = nullptr; // Just reset it here so it only does it once
-			LocalLastInteractingComponent = nullptr;
+			LocalInteractingComponent.Reset(); // Just reset it here so it only does it once
+			LocalLastInteractingComponent.Reset();
 		}
 		else
 			this->SetRelativeLocation(FMath::VInterpConstantTo(this->GetRelativeLocation(), GetTargetRelativeLocation(), DeltaTime, DepressSpeed), false);
@@ -154,7 +151,7 @@ void UVRButtonComponent::TickComponent(float DeltaTime, enum ELevelTick TickType
 	{
 		if ((StateChangeAuthorityType == EVRStateChangeAuthorityType::CanChangeState_All) ||
 			(StateChangeAuthorityType == EVRStateChangeAuthorityType::CanChangeState_Server && GetNetMode() < ENetMode::NM_Client) ||
-			(StateChangeAuthorityType == EVRStateChangeAuthorityType::CanChangeState_Owner && IsValid(LocalLastInteractingActor) && LocalLastInteractingActor->HasLocalNetOwner()))
+			(StateChangeAuthorityType == EVRStateChangeAuthorityType::CanChangeState_Owner && LocalLastInteractingActor.IsValid() && LocalLastInteractingActor->HasLocalNetOwner()))
 		{
 			// Check for if we should set the state of the button, done here as for the press button the lerp counts for input
 			bool bCheckState = (GetAxisValue(InitialRelativeTransform.InverseTransformPosition(this->GetRelativeLocation())) <= (-ButtonEngageDepth) + KINDA_SMALL_NUMBER);
@@ -216,10 +213,10 @@ void UVRButtonComponent::SetLastInteractingActor()
 {
 
 	// Early out on the simple checks
-	if (!IsValid(LocalInteractingComponent) || LocalInteractingComponent == GetAttachParent() || LocalInteractingComponent->GetAttachParent() == GetAttachParent())
+	if (!LocalInteractingComponent.IsValid() || LocalInteractingComponent == GetAttachParent() || LocalInteractingComponent->GetAttachParent() == GetAttachParent())
 	{
-		LocalLastInteractingActor = nullptr;
-		LocalLastInteractingComponent = nullptr;
+		LocalLastInteractingActor.Reset();
+		LocalLastInteractingComponent.Reset();
 		return;
 	}
 
@@ -274,14 +271,14 @@ void UVRButtonComponent::SetLastInteractingActor()
 		return;
 	}
 
-	LocalLastInteractingActor = nullptr;
+	LocalLastInteractingActor.Reset();
 	return;
 }
 
 void UVRButtonComponent::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
 	// Other Actor is the actor that triggered the event. Check that is not ourself.  
-	if (bIsEnabled && !IsValid(LocalInteractingComponent) && (bSkipOverlapFiltering || IsValidOverlap(OtherComp)))
+	if (bIsEnabled && !LocalInteractingComponent.IsValid() && (bSkipOverlapFiltering || IsValidOverlap(OtherComp)))
 	{
 		LocalInteractingComponent = OtherComp;
 
@@ -304,9 +301,9 @@ void UVRButtonComponent::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AAc
 
 void UVRButtonComponent::OnOverlapEnd(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
-	if (IsValid(LocalInteractingComponent) && OtherComp == LocalInteractingComponent)
+	if (LocalInteractingComponent.IsValid() && OtherComp == LocalInteractingComponent)
 	{
-		LocalInteractingComponent = nullptr;
+		LocalInteractingComponent.Reset();
 	}
 }
 
@@ -379,36 +376,5 @@ void UVRButtonComponent::ResetInitialButtonLocation()
 
 bool UVRButtonComponent::IsButtonInUse()
 {
-	return IsValid(LocalInteractingComponent);
-}
-
-float UVRButtonComponent::GetAxisValue(FVector CheckLocation)
-{
-	switch (ButtonAxis)
-	{
-	case EVRInteractibleAxis::Axis_X:
-		return CheckLocation.X; break;
-	case EVRInteractibleAxis::Axis_Y:
-		return CheckLocation.Y; break;
-	case EVRInteractibleAxis::Axis_Z:
-		return CheckLocation.Z; break;
-	default:return 0.0f; break;
-	}
-}
-
-FVector UVRButtonComponent::SetAxisValue(float SetValue)
-{
-	FVector vec = FVector::ZeroVector;
-
-	switch (ButtonAxis)
-	{
-	case EVRInteractibleAxis::Axis_X:
-		vec.X = SetValue; break;
-	case EVRInteractibleAxis::Axis_Y:
-		vec.Y = SetValue; break;
-	case EVRInteractibleAxis::Axis_Z:
-		vec.Z = SetValue; break;
-	}
-
-	return vec;
+	return LocalInteractingComponent.IsValid();
 }

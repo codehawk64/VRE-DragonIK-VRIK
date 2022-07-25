@@ -2,16 +2,12 @@
 
 #include "GripScripts/GS_Melee.h"
 #include "VRGripInterface.h"
-#include "GameFramework/WorldSettings.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "PhysicsEngine/PhysicsConstraintActor.h"
 #include "PhysicsEngine/PhysicsConstraintComponent.h"
 #include "VRExpansionFunctionLibrary.h"
-#include "GripMotionControllerComponent.h"
 #include "VRGlobalSettings.h"
 #include "DrawDebugHelpers.h"
-#include "Components/PrimitiveComponent.h"
-#include "GameFramework/Actor.h"
 #include "GripMotionControllerComponent.h"
 
 UGS_Melee::UGS_Melee(const FObjectInitializer& ObjectInitializer) :
@@ -546,7 +542,7 @@ void UGS_Melee::OnBeginPlay_Implementation(UObject * CallingOwner)
 			{
 				if (UPrimitiveComponent * PrimComp = Cast<UPrimitiveComponent>(ChildComp))
 				{
-					Found->TargetComponent = TObjectPtr<UPrimitiveComponent>(PrimComp);
+					Found->TargetComponent = TWeakObjectPtr<UPrimitiveComponent>(PrimComp);
 					//PrimComp->OnComponentHit.AddDynamic(this, &UGS_Melee::OnLodgeHitCallback);
 				}
 
@@ -652,13 +648,13 @@ void UGS_Melee::OnLodgeHitCallback(AActor* SelfActor, AActor* OtherActor, FVecto
 
 	for(FBPLodgeComponentInfo &LodgeData : PenetrationNotifierComponents)
 	{
-		if (!IsValid(LodgeData.TargetComponent))
+		if (!LodgeData.TargetComponent.IsValid())
 			continue;
 
 		FBox LodgeLocalBox = LodgeData.TargetComponent->CalcLocalBounds().GetBox();
 		FVector LocalHit = LodgeData.TargetComponent->GetComponentTransform().InverseTransformPosition(Hit.ImpactPoint);
 		//FBox LodgeBox = LodgeData.TargetComponent->Bounds.GetBox();
-		if (IsValid(LodgeData.TargetComponent) && LodgeLocalBox.IsInsideOrOn(LocalHit))//LodgeBox.IsInsideOrOn(Hit.ImpactPoint))
+		if (LodgeData.TargetComponent.IsValid() && LodgeLocalBox.IsInsideOrOn(LocalHit))//LodgeBox.IsInsideOrOn(Hit.ImpactPoint))
 		{
 			FVector ForwardVec = LodgeData.TargetComponent->GetForwardVector();
 			

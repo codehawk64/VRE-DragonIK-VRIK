@@ -2,7 +2,6 @@
 
 #include "VRGripInterface.h"
 #include "UObject/ObjectMacros.h"
-#include "GripScripts/VRGripScriptBase.h"
 #include "UObject/Interface.h"
  
 UVRGripInterface::UVRGripInterface(const class FObjectInitializer& ObjectInitializer)

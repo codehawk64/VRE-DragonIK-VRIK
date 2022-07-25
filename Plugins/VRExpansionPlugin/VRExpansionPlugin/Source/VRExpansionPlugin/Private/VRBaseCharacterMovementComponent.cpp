@@ -10,9 +10,6 @@
 #include "ParentRelativeAttachmentComponent.h"
 #include "VRBaseCharacter.h"
 #include "VRRootComponent.h"
-#include "AITypes.h"
-#include "AI/Navigation/NavigationTypes.h"
-#include "Navigation/PathFollowingComponent.h"
 #include "VRPlayerController.h"
 #include "GameFramework/PhysicsVolume.h"
 
@@ -174,17 +171,6 @@ void UVRBaseCharacterMovementComponent::TickComponent(float DeltaTime, enum ELev
 
 				if (MovementMode == MOVE_Custom && CustomMovementMode == (uint8)EVRCustomMovementMode::VRMOVE_Seated)
 				{
-
-					//#TODO 5.0: Handle this?
-					/*FVector InputVector = FVector::ZeroVector;
-					bool bUsingAsyncTick = (CharacterMovementCVars::AsyncCharacterMovement == 1) && IsAsyncCallbackRegistered();
-					if (!bUsingAsyncTick)
-					{
-						// Do not consume input if simulating asynchronously, we will consume input when filling out async inputs.
-						InputVector = ConsumeInputVector();
-					}*/
-
-
 					const FVector InputVector = ConsumeInputVector();
 					if (!HasValidData() || ShouldSkipUpdate(DeltaTime))
 					{
@@ -558,10 +544,10 @@ float UVRBaseCharacterMovementComponent::SlideAlongSurface(const FVector& Delta,
 
 }
 
-/*void UVRBaseCharacterMovementComponent::SetCrouchedHalfHeight(float NewCrouchedHalfHeight)
+void UVRBaseCharacterMovementComponent::SetCrouchedHalfHeight(float NewCrouchedHalfHeight)
 {
 	this->CrouchedHalfHeight = NewCrouchedHalfHeight;
-}*/
+}
 
 void UVRBaseCharacterMovementComponent::AddCustomReplicatedMovement(FVector Movement)
 {
@@ -590,20 +576,6 @@ void UVRBaseCharacterMovementComponent::CheckServerAuthedMoveAction()
 			MoveActionArray.Clear();
 		}
 	}
-}
-
-void UVRBaseCharacterMovementComponent::PerformMoveAction_SetTrackingPaused(bool bNewTrackingPaused)
-{
-	StoreSetTrackingPaused(bNewTrackingPaused);
-}
-
-void UVRBaseCharacterMovementComponent::StoreSetTrackingPaused(bool bNewTrackingPaused)
-{
-	FVRMoveActionContainer MoveAction;
-	MoveAction.MoveAction = EVRMoveAction::VRMOVEACTION_PauseTracking;
-	MoveAction.MoveActionFlags = bNewTrackingPaused;
-	MoveActionArray.MoveActions.Add(MoveAction);
-	CheckServerAuthedMoveAction();
 }
 
 void UVRBaseCharacterMovementComponent::PerformMoveAction_SnapTurn(float DeltaYawAngle, EVRMoveActionVelocityRetention VelocityRetention, bool bFlagGripTeleport, bool bFlagCharacterTeleport)
@@ -688,7 +660,7 @@ void UVRBaseCharacterMovementComponent::PerformMoveAction_StopAllMovement()
 	CheckServerAuthedMoveAction();
 }
 
-void UVRBaseCharacterMovementComponent::PerformMoveAction_Custom(EVRMoveAction MoveActionToPerform, EVRMoveActionDataReq DataRequirementsForMoveAction, FVector MoveActionVector, FRotator MoveActionRotator, uint8 MoveActionFlags)
+void UVRBaseCharacterMovementComponent::PerformMoveAction_Custom(EVRMoveAction MoveActionToPerform, EVRMoveActionDataReq DataRequirementsForMoveAction, FVector MoveActionVector, FRotator MoveActionRotator)
 {
 	FVRMoveActionContainer MoveAction;
 	MoveAction.MoveAction = MoveActionToPerform;
@@ -697,7 +669,6 @@ void UVRBaseCharacterMovementComponent::PerformMoveAction_Custom(EVRMoveAction M
 	MoveAction.MoveActionLoc = RoundDirectMovement(MoveActionVector);
 	MoveAction.MoveActionRot = MoveActionRotator;
 	MoveAction.MoveActionDataReq = DataRequirementsForMoveAction;
-	MoveAction.MoveActionFlags = MoveActionFlags;
 	MoveActionArray.MoveActions.Add(MoveAction);
 
 	CheckServerAuthedMoveAction();
@@ -725,17 +696,13 @@ bool UVRBaseCharacterMovementComponent::CheckForMoveAction()
 		{
 			/*return */DoMASetRotation(MoveAction);
 		}break;
-		case EVRMoveAction::VRMOVEACTION_PauseTracking:
-		{
-			/*return */DoMAPauseTracking(MoveAction);
-		}break;
 		case EVRMoveAction::VRMOVEACTION_None:
 		{}break;
 		default: // All other move actions (CUSTOM)
 		{
 			if (AVRBaseCharacter * OwningCharacter = Cast<AVRBaseCharacter>(GetCharacterOwner()))
 			{
-				OwningCharacter->OnCustomMoveActionPerformed(MoveAction.MoveAction, MoveAction.MoveActionLoc, MoveAction.MoveActionRot, MoveAction.MoveActionFlags);
+				OwningCharacter->OnCustomMoveActionPerformed(MoveAction.MoveAction, MoveAction.MoveActionLoc, MoveAction.MoveActionRot);
 			}
 		}break;
 		}
@@ -931,18 +898,6 @@ bool UVRBaseCharacterMovementComponent::DoMAStopAllMovement(FVRMoveActionContain
 		return true;
 	}
 
-	return false;
-}
-
-bool UVRBaseCharacterMovementComponent::DoMAPauseTracking(FVRMoveActionContainer& MoveAction)
-{
-	if (AVRBaseCharacter* OwningCharacter = Cast<AVRBaseCharacter>(GetCharacterOwner()))
-	{
-		OwningCharacter->bTrackingPaused = MoveAction.MoveActionFlags > 0;
-		OwningCharacter->PausedTrackingLoc = MoveAction.MoveActionLoc;
-		OwningCharacter->PausedTrackingRot = MoveAction.MoveActionRot.Yaw;
-		return true;
-	}
 	return false;
 }
 
@@ -1593,7 +1548,7 @@ void UVRBaseCharacterMovementComponent::SimulatedTick(float DeltaSeconds)
 			{
 				const FScopedPreventAttachedComponentMove PreventMeshMove(bPreventMeshMovement ? BaseVRCharacterOwner->NetSmoother : nullptr);
 				//const FScopedPreventAttachedComponentMove PreventMeshMovement(bPreventMeshMovement ? Mesh : nullptr);
-				if (CharacterOwner->IsPlayingRootMotion())
+				if (CharacterOwner->IsMatineeControlled() || CharacterOwner->IsPlayingRootMotion())
 				{
 					PerformMovement(DeltaSeconds);
 				}
@@ -1606,7 +1561,7 @@ void UVRBaseCharacterMovementComponent::SimulatedTick(float DeltaSeconds)
 			}
 			else
 			{
-				if (CharacterOwner->IsPlayingRootMotion())
+				if (CharacterOwner->IsMatineeControlled() || CharacterOwner->IsPlayingRootMotion())
 				{
 					PerformMovement(DeltaSeconds);
 				}
@@ -1995,8 +1950,8 @@ FVector UVRBaseCharacterMovementComponent::GetCustomInputVector()
 void UVRBaseCharacterMovementComponent::UpdateFromCompressedFlags(uint8 Flags)
 {
 	// If is a custom or VR custom movement mode
-	//int32 MovementFlags = (Flags >> 2) & 15;
-	//VRReplicatedMovementMode = (EVRConjoinedMovementModes)MovementFlags;
+	int32 MovementFlags = (Flags >> 2) & 15;
+	VRReplicatedMovementMode = (EVRConjoinedMovementModes)MovementFlags;
 
 	//bWantsToSnapTurn = ((Flags & FSavedMove_VRBaseCharacter::FLAG_SnapTurn) != 0);
 

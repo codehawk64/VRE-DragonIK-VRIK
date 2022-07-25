@@ -3,8 +3,14 @@
 #include "CoreMinimal.h"
 #include "Engine/Engine.h"
 #include "VRGripScriptBase.h"
+#include "GameFramework/WorldSettings.h"
 #include "GripScripts/GS_Default.h"
 #include "GS_Melee.generated.h"
+
+#if PHYSICS_INTERFACE_PHYSX
+#include "PhysXPublic.h"
+#endif // WITH_PHYSX
+
 
 
 // The type of melee hit zone we are
@@ -146,11 +152,10 @@ public:
 		MinimumHitVelocity = 1000.f;
 		AcceptableForwardProductRange = 0.1f;
 		AcceptableForwardProductRangeForHits = 0.1f;
-		TargetComponent = nullptr;
 	}
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LodgeComponentInfo")
-	TObjectPtr<UPrimitiveComponent> TargetComponent;
+	TWeakObjectPtr<UPrimitiveComponent> TargetComponent;
 
 	FORCEINLINE bool operator==(const FName& Other) const
 	{

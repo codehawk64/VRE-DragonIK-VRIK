@@ -2,8 +2,7 @@
 
 #include "ReplicatedVRCameraComponent.h"
 #include "Net/UnrealNetwork.h"
-//#include "Engine/Engine.h"
-#include "Net/UnrealNetwork.h"
+#include "Engine/Engine.h"
 #include "VRBaseCharacter.h"
 #include "IXRTrackingSystem.h"
 #include "IXRCamera.h"
@@ -37,10 +36,6 @@ UReplicatedVRCameraComponent::UReplicatedVRCameraComponent(const FObjectInitiali
 	bReppedOnce = false;
 
 	OverrideSendTransform = nullptr;
-
-	LastRelativePosition = FTransform::Identity;
-	bSampleVelocityInWorldSpace = false;
-	bHadValidFirstVelocity = false;
 
 	//bUseVRNeckOffset = true;
 	//VRNeckOffset = FTransform(FRotator::ZeroRotator, FVector(15.0f,0,0), FVector(1.0f));
@@ -123,7 +118,7 @@ void UReplicatedVRCameraComponent::OnAttachmentChanged()
 	}
 	else
 	{
-		AttachChar = nullptr;
+		AttachChar.Reset();
 	}
 
 	Super::OnAttachmentChanged();
@@ -137,7 +132,7 @@ void UReplicatedVRCameraComponent::UpdateTracking(float DeltaTime)
 	if (bHasAuthority)
 	{
 		// For non view target positional updates (third party and the like)
-		if (bSetPositionDuringTick && bLockToHmd && GEngine->XRSystem.IsValid() && GEngine->XRSystem->IsHeadTrackingAllowedForWorld(*GetWorld()))
+		if (bSetPositionDuringTick && bLockToHmd && GEngine->XRSystem.IsValid() && GEngine->XRSystem->IsHeadTrackingAllowed())
 		{
 			//ResetRelativeTransform();
 			FQuat Orientation;
@@ -183,24 +178,14 @@ void UReplicatedVRCameraComponent::UpdateTracking(float DeltaTime)
 			}
 		}
 	}
-
-	// Save out the component velocity from this and last frame
-	if(bHadValidFirstVelocity || !LastRelativePosition.Equals(FTransform::Identity))
-	{ 
-		bHadValidFirstVelocity = true;
-		ComponentVelocity = ((bSampleVelocityInWorldSpace ? GetComponentLocation() : GetRelativeLocation()) - LastRelativePosition.GetTranslation()) / DeltaTime;
-	}
-
-	LastRelativePosition = bSampleVelocityInWorldSpace ? this->GetComponentTransform() : this->GetRelativeTransform();
 }
-
 
 void UReplicatedVRCameraComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 
-	if (!bUpdateInCharacterMovement || !IsValid(AttachChar))
+	if (!bUpdateInCharacterMovement || !AttachChar.IsValid())
 	{
 		UpdateTracking(DeltaTime);
 	}
@@ -273,7 +258,7 @@ void UReplicatedVRCameraComponent::GetCameraView(float DeltaTime, FMinimalViewIn
 
 		if (XRCamera.IsValid())
 		{
-			if (XRSystem->IsHeadTrackingAllowedForWorld(*GetWorld()))
+			if (XRSystem->IsHeadTrackingAllowed())
 			{
 				const FTransform ParentWorld = CalcNewComponentToWorld(FTransform());
 				XRCamera->SetupLateUpdate(ParentWorld, this, bLockToHmd == 0);

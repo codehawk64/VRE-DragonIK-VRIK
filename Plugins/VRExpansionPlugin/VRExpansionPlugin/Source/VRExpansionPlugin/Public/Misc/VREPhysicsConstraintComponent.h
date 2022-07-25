@@ -5,14 +5,9 @@
 #include "PhysicsEngine/PhysicsConstraintComponent.h"
 
 // Delete this eventually when the physics interface is fixed
-#if WITH_CHAOS
-#include "Chaos/ParticleHandle.h"
-#include "Chaos/KinematicGeometryParticles.h"
-#include "Chaos/PBDJointConstraintTypes.h"
-#include "Chaos/PBDJointConstraintData.h"
-#include "Chaos/Sphere.h"
-#include "PhysicsProxy/SingleParticlePhysicsProxy.h"
-#endif
+#if PHYSICS_INTERFACE_PHYSX
+#include "PhysXPublic.h"
+#endif // WITH_PHYSX
 
 #include "VREPhysicsConstraintComponent.generated.h"
 
@@ -29,18 +24,49 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "VRE Physics Constraint Component")
 		void SetConstraintToForceBased(bool bUseForceConstraint)
 	{
-#if WITH_CHAOS
+#if PHYSICS_INTERFACE_PHYSX
+		// This is a temp workaround until epic fixes the drive creation to allow force constraints
+		// I wanted to use the new interface and not directly set the drive so that it is ready to delete this section
+		// When its fixed
+		//#if PHYSICS_INTERFACE_PHYSX
 
-		if (!ConstraintInstance.ConstraintHandle.IsValid())
+
+		if (!ConstraintInstance.ConstraintHandle.ConstraintData)
 			return;
 
-		if (ConstraintInstance.ConstraintHandle->IsType(Chaos::EConstraintType::JointConstraintType))
+		PxD6JointDriveFlags JointFlags;
+		if (!bUseForceConstraint)
+			JointFlags = PxD6JointDriveFlag::eACCELERATION;
+
+
+		PxD6JointDrive driveVal = ConstraintInstance.ConstraintHandle.ConstraintData->getDrive(PxD6Drive::Enum::eX);
+		driveVal.flags = JointFlags;
+		ConstraintInstance.ConstraintHandle.ConstraintData->setDrive(PxD6Drive::Enum::eX, driveVal);
+
+		driveVal = ConstraintInstance.ConstraintHandle.ConstraintData->getDrive(PxD6Drive::Enum::eY);
+		driveVal.flags = JointFlags;
+		ConstraintInstance.ConstraintHandle.ConstraintData->setDrive(PxD6Drive::Enum::eY, driveVal);
+
+		driveVal = ConstraintInstance.ConstraintHandle.ConstraintData->getDrive(PxD6Drive::Enum::eZ);
+		driveVal.flags = JointFlags;
+		ConstraintInstance.ConstraintHandle.ConstraintData->setDrive(PxD6Drive::Enum::eZ, driveVal);
+
+		// Check if slerp
+		if (ConstraintInstance.ProfileInstance.AngularDrive.AngularDriveMode == EAngularDriveMode::SLERP)
 		{
-			if (Chaos::FJointConstraint* Constraint = static_cast<Chaos::FJointConstraint*>(ConstraintInstance.ConstraintHandle.Constraint))
-			{
-				Constraint->SetLinearDriveForceMode(bUseForceConstraint ? Chaos::EJointForceMode::Force : Chaos::EJointForceMode::Acceleration);
-				Constraint->SetAngularDriveForceMode(bUseForceConstraint ? Chaos::EJointForceMode::Force : Chaos::EJointForceMode::Acceleration);
-			}
+			driveVal = ConstraintInstance.ConstraintHandle.ConstraintData->getDrive(PxD6Drive::Enum::eSLERP);
+			driveVal.flags = JointFlags;
+			ConstraintInstance.ConstraintHandle.ConstraintData->setDrive(PxD6Drive::Enum::eSLERP, driveVal);
+		}
+		else
+		{
+			driveVal = ConstraintInstance.ConstraintHandle.ConstraintData->getDrive(PxD6Drive::Enum::eSWING);
+			driveVal.flags = JointFlags;
+			ConstraintInstance.ConstraintHandle.ConstraintData->setDrive(PxD6Drive::Enum::eSWING, driveVal);
+
+			driveVal = ConstraintInstance.ConstraintHandle.ConstraintData->getDrive(PxD6Drive::Enum::eTWIST);
+			driveVal.flags = JointFlags;
+			ConstraintInstance.ConstraintHandle.ConstraintData->setDrive(PxD6Drive::Enum::eTWIST, driveVal);
 		}
 
 #endif

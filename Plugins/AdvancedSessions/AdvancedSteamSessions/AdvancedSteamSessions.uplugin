@@ -2,8 +2,8 @@
     "FileVersion" : 3,
  
     "FriendlyName" : "Advanced Steam Sessions",
-    "Version" : 5.0,
-    "VersionName": "5.0",
+    "Version" : 4.26,
+    "VersionName": "4.26",
     "Description" : "Adds new blueprint functions to handle more advanced session operations in Steam. REQUIRES ADVANCED SESSIONS",
     "Category" : "Advanced Sessions Plugin",
     "CreatedBy" : "Joshua Statzer",
@@ -32,10 +32,6 @@
 		},
 		{
 			"Name": "OnlineSubsystemSteam",
-			"Enabled": true
-		},
-		{
-			"Name": "SteamShared",
 			"Enabled": true
 		}
 	]

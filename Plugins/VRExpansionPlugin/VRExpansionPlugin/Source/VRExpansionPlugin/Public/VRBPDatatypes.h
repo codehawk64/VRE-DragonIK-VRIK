@@ -2,13 +2,17 @@
 
 #pragma once
 #include "CoreMinimal.h"
-#include "Engine/NetSerialization.h"
-#include "PhysicsPublic.h"
 //#include "EngineMinimal.h"
-//#include "Components/PrimitiveComponent.h"
+#include "Components/PrimitiveComponent.h"
 
-//#include "PhysicsPublic.h"
+#include "PhysicsPublic.h"
 #include "PhysicsEngine/ConstraintDrives.h"
+
+#if PHYSICS_INTERFACE_PHYSX
+//#include "PhysXPublic.h"
+//#include "PhysicsEngine/PhysXSupport.h"
+#endif // WITH_PHYSX
+
 #include "VRBPDatatypes.generated.h"
 
 class UGripMotionControllerComponent;
@@ -20,12 +24,11 @@ enum class EVRCustomMovementMode : uint8
 {
 	VRMOVE_Climbing UMETA(DisplayName = "Climbing"),
 	VRMOVE_LowGrav  UMETA(DisplayName = "LowGrav"),
-	VRMOVE_Seated UMETA(DisplayName = "Seated"),
-	VRMOVE_SplineFollow UMETA(DisplayName = "SplineFollow")
+	VRMOVE_Seated UMETA(DisplayName = "Seated")
 //	VRMove_Spider UMETA(DisplayName = "Spider")
 };
 
-// We use 6 bits for this so a maximum of 64 elements
+// We use 4 bits for this so a maximum of 16 elements
 UENUM(BlueprintType)
 enum class EVRConjoinedMovementModes : uint8
 {
@@ -41,31 +44,11 @@ enum class EVRConjoinedMovementModes : uint8
 	C_VRMOVE_LowGrav = 0x09 UMETA(DisplayName = "LowGrav"),
 	//C_VRMOVE_Spider = 0x0A UMETA(DisplayName = "Spider"),
 	C_VRMOVE_Seated = 0x0A UMETA(DisplayName = "Seated"),
-	C_VRMOVE_SplineFollow = 0x0B UMETA(DisplayName = "SplineFollow"), // 
-	// 0x0C
-	// 0x0D
-	// 0x0E
-	// 0x0F
-	// 0x10
-	// 0x11
-	// 0x12
-	// 0x13
-	// 0x14
-	// 0x15
-	// 0x16
-	// 0x17
-	// 0x18
-	// 0x19
-	C_VRMOVE_Custom1 = 0x1A UMETA(DisplayName = "Custom1"),
-	C_VRMOVE_Custom2 = 0x1B UMETA(DisplayName = "Custom2"),
-	C_VRMOVE_Custom3 = 0x1C UMETA(DisplayName = "Custom3"),
-	C_VRMOVE_Custom4 = 0x1D UMETA(DisplayName = "Custom4"),
-	C_VRMOVE_Custom5 = 0x1E UMETA(DisplayName = "Custom5"),
-	C_VRMOVE_Custom6 = 0x1F UMETA(DisplayName = "Custom6"),
-	C_VRMOVE_Custom7 = 0x20 UMETA(DisplayName = "Custom7"),
-	C_VRMOVE_Custom8 = 0x21 UMETA(DisplayName = "Custom8"),
-	C_VRMOVE_Custom9 = 0x22 UMETA(DisplayName = "Custom9"),
-	C_VRMOVE_Custom10 = 0x23 UMETA(DisplayName = "Custom10")
+	C_VRMOVE_Custom1 = 0x0B UMETA(DisplayName = "Custom1"),
+	C_VRMOVE_Custom2 = 0x0C UMETA(DisplayName = "Custom2"),
+	C_VRMOVE_Custom3 = 0x0D UMETA(DisplayName = "Custom3"),
+	C_VRMOVE_Custom4 = 0x0E UMETA(DisplayName = "Custom4"),
+	C_VRMOVE_Custom5 = 0x0F UMETA(DisplayName = "Custom5")
 };
 
 // This makes a lot of the blueprint functions cleaner
@@ -76,20 +59,6 @@ enum class EBPVRResultSwitch : uint8
 	OnSucceeded,
 	// On Failure
 	OnFailed
-};
-
-// Which method of handling gripping conflict to take with client auth
-UENUM(BlueprintType)
-enum class EVRClientAuthConflictResolutionMode : uint8
-{
-	// Do nothing
-	VRGRIP_CONFLICT_None,
-	// Give to the first to arrive
-	VRGRIP_CONFLICT_First,
-	// Give to the last to arrive
-	VRGRIP_CONFLICT_Last,
-	// Force all ends to drop their grip
-	VRGRIP_CONFLICT_DropAll
 };
 
 // Wasn't needed when final setup was realized
@@ -127,7 +96,7 @@ public:
 
 	// Tracked parent reference
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings")
-		TObjectPtr<UPrimitiveComponent> TrackedDevice;
+		UPrimitiveComponent * TrackedDevice;
 
 	bool IsValid()
 	{
@@ -912,7 +881,7 @@ enum class EGripCollisionType : uint8
 	/** Uses Stiffness and damping settings on collision, on no collision uses stiffness values 10x stronger so it has less play. */
 	InteractiveHybridCollisionWithPhysics,
 
-	/** Swaps back and forth between physics grip and a sweep type grip depending on if the held object will be colliding this frame or not. */
+	/** Swaps back and forth between physx grip and a sweep type grip depending on if the held object will be colliding this frame or not. */
 	InteractiveHybridCollisionWithSweep,
 
 	/** Only sweeps movement, will not be offset by geomtry, still pushes physics simulating objects, no weight. */
@@ -934,10 +903,7 @@ enum class EGripCollisionType : uint8
 	CustomGrip,
 
 	/** A grip that does not tick or move, used for drop / grip events only and uses least amount of processing. */
-	EventsOnly,
-
-	/** Uses a hard constraint with no softness to lock them together, best used with ConstrainToPivot enabled and a bone chain. */
-	LockedConstraint
+	EventsOnly
 
 };
 
@@ -1051,6 +1017,7 @@ UENUM(Blueprintable)
 enum class EPhysicsGripConstraintType : uint8
 {
 	AccelerationConstraint = 0,
+	// Not available when not using Physx
 	ForceConstraint = 1
 };
 
@@ -1078,7 +1045,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PhysicsSettings")
 		bool bUsePhysicsSettings;
 
-	// Set the constraint force mode
+	// Not available outside of physx, chaos has no force constraints and other plugin physics engines may not as well
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PhysicsSettings", meta = (editcondition = "bUsePhysicsSettings"))
 		EPhysicsGripConstraintType PhysicsConstraintType;
 
@@ -1268,7 +1235,7 @@ public:
 		bool bHasSecondaryAttachment;
 
 	UPROPERTY(BlueprintReadOnly, Category = "SecondaryGripInfo")
-		TObjectPtr<USceneComponent> SecondaryAttachment;
+		USceneComponent * SecondaryAttachment;
 
 	UPROPERTY(BlueprintReadOnly, Category = "SecondaryGripInfo")
 		FTransform_NetQuantize SecondaryRelativeTransform;
@@ -1387,7 +1354,7 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Settings")
 		EGripTargetType GripTargetType;
 	UPROPERTY(BlueprintReadOnly, Category = "Settings")
-		TObjectPtr<UObject> GrippedObject;
+		UObject * GrippedObject;
 	UPROPERTY(BlueprintReadOnly, Category = "Settings")
 		EGripCollisionType GripCollisionType;
 	UPROPERTY(BlueprintReadWrite, Category = "Settings")
@@ -1408,13 +1375,6 @@ public:
 	// Whether the grip is currently paused
 	UPROPERTY(BlueprintReadWrite, NotReplicated, Category = "Settings")
 		bool bIsPaused;
-
-	// Only true in one specific circumstance, when you are a simulated client
-	// and the grip has been dropped but replication on the array hasn't deleted
-	// the entry yet. We cannot remove the entry as it can corrupt the array.
-	// this lets end users check against the grip to ignore it.
-	UPROPERTY(BlueprintReadOnly, NotReplicated, Category = "Settings")
-		bool bIsPendingKill;
 
 	// When true, will lock a hybrid grip into its collision state
 	UPROPERTY(BlueprintReadWrite, NotReplicated, Category = "Settings")
@@ -1473,18 +1433,6 @@ public:
 		return GripMovementReplicationSetting == EGripMovementReplicationSettings::ClientSide_Authoritive || GripMovementReplicationSetting == EGripMovementReplicationSettings::ClientSide_Authoritive_NoRep;
 	}
 
-	// If the grip is valid
-	bool IsValid() const
-	{
-		return (!bIsPendingKill && GripID != INVALID_VRGRIP_ID && GrippedObject && IsValidChecked(GrippedObject));
-	}
-
-	// Both valid and is not paused
-	bool IsActive() const
-	{
-		return (!bIsPendingKill && GripID != INVALID_VRGRIP_ID && GrippedObject && IsValidChecked(GrippedObject) && !bIsPaused);
-	}
-
 	// Cached values - since not using a full serialize now the old array state may not contain what i need to diff
 	// I set these in On_Rep now and check against them when new replications happen to control some actions.
 	struct FGripValueCache
@@ -1509,7 +1457,6 @@ public:
 		bSkipNextTeleportCheck = false;
 		bSkipNextConstraintLengthCheck = false;
 		bIsPaused = false;
-		bIsPendingKill = false;
 		bLockHybridGrip = false;
 		AdditionTransform = FTransform::Identity;
 		GripDistance = 0.0f;
@@ -1614,7 +1561,6 @@ public:
 		SlotName(NAME_None),
 		GripMovementReplicationSetting(EGripMovementReplicationSettings::ForceClientSideMovement),
 		bIsPaused(false),
-		bIsPendingKill(false),
 		bLockHybridGrip(false),
 		bOriginalReplicatesMovement(false),
 		bOriginalGravity(false),
@@ -1643,7 +1589,7 @@ struct VREXPANSIONPLUGIN_API FBPGripPair
 public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripPair")
-		TObjectPtr<UGripMotionControllerComponent> HoldingController;
+	UGripMotionControllerComponent * HoldingController;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripPair")
 	uint8 GripID;
@@ -1774,9 +1720,8 @@ struct VREXPANSIONPLUGIN_API FBPActorPhysicsHandleInformation
 	GENERATED_BODY()
 public:
 	UPROPERTY(BlueprintReadOnly, Category = "Settings")
-		TObjectPtr<UObject> HandledObject;
+		UObject * HandledObject;
 	uint8 GripID;
-	bool bIsPaused;
 
 	FPhysicsActorHandle KinActorData2;
 	FPhysicsConstraintHandle HandleData2;
@@ -1790,8 +1735,6 @@ public:
 	bool bSetCOM;
 	bool bSkipResettingCom;
 	bool bSkipMassCheck;
-	bool bSkipDeletingKinematicActor;
-	bool bInitiallySetup;
 
 	FBPActorPhysicsHandleInformation()
 	{	
@@ -1799,13 +1742,10 @@ public:
 		LastPhysicsTransform = FTransform::Identity;
 		COMPosition = FTransform::Identity;
 		GripID = INVALID_VRGRIP_ID;
-		bIsPaused = false;
 		RootBoneRotation = FTransform::Identity;
 		bSetCOM = false;
 		bSkipResettingCom = false;
 		bSkipMassCheck = false;
-		bSkipDeletingKinematicActor = false;
-		bInitiallySetup = false;
 #if WITH_CHAOS
 		KinActorData2 = nullptr;
 #endif

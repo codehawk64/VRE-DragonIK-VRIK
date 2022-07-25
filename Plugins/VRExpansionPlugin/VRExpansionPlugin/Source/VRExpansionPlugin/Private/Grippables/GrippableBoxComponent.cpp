@@ -1,9 +1,6 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "Grippables/GrippableBoxComponent.h"
-#include "GripMotionControllerComponent.h"
-#include "VRExpansionFunctionLibrary.h"
-#include "GripScripts/VRGripScriptBase.h"
 #include "Net/UnrealNetwork.h"
 
 //=============================================================================
@@ -34,15 +31,13 @@ UGrippableBoxComponent::UGrippableBoxComponent(const FObjectInitializer& ObjectI
 	//this->bReplicates = true;
 
 	bRepGripSettingsAndGameplayTags = true;
-	bReplicateGripScripts = false;
 }
 
 void UGrippableBoxComponent::GetLifetimeReplicatedProps(TArray< class FLifetimeProperty > & OutLifetimeProps) const
 {
 	 Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	DOREPLIFETIME_CONDITION(UGrippableBoxComponent, GripLogicScripts, COND_Custom);
-	DOREPLIFETIME(UGrippableBoxComponent, bReplicateGripScripts);
+	DOREPLIFETIME/*_CONDITION*/(UGrippableBoxComponent, GripLogicScripts);// , COND_Custom);
 	DOREPLIFETIME(UGrippableBoxComponent, bRepGripSettingsAndGameplayTags);
 	DOREPLIFETIME(UGrippableBoxComponent, bReplicateMovement);
 	DOREPLIFETIME_CONDITION(UGrippableBoxComponent, VRGripInterfaceSettings, COND_Custom);
@@ -56,7 +51,6 @@ void UGrippableBoxComponent::PreReplication(IRepChangedPropertyTracker & Changed
 	// Don't replicate if set to not do it
 	DOREPLIFETIME_ACTIVE_OVERRIDE(UGrippableBoxComponent, VRGripInterfaceSettings, bRepGripSettingsAndGameplayTags);
 	DOREPLIFETIME_ACTIVE_OVERRIDE(UGrippableBoxComponent, GameplayTags, bRepGripSettingsAndGameplayTags);
-	DOREPLIFETIME_ACTIVE_OVERRIDE(UGrippableBoxComponent, GripLogicScripts, bReplicateGripScripts);
 
 	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeLocation, bReplicateMovement);
 	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeRotation, bReplicateMovement);
@@ -67,14 +61,11 @@ bool UGrippableBoxComponent::ReplicateSubobjects(UActorChannel* Channel, class F
 {
 	bool WroteSomething = Super::ReplicateSubobjects(Channel, Bunch, RepFlags);
 
-	if (bReplicateGripScripts)
+	for (UVRGripScriptBase* Script : GripLogicScripts)
 	{
-		for (UVRGripScriptBase* Script : GripLogicScripts)
+		if (Script && !Script->IsPendingKill())
 		{
-			if (Script && IsValid(Script))
-			{
-				WroteSomething |= Channel->ReplicateSubobject(Script, *Bunch, *RepFlags);
-			}
+			WroteSomething |= Channel->ReplicateSubobject(Script, *Bunch, *RepFlags);
 		}
 	}
 
@@ -268,7 +259,7 @@ void UGrippableBoxComponent::PreDestroyFromReplication()
 		if (UObject *SubObject = GripLogicScripts[i])
 		{
 			SubObject->PreDestroyFromReplication();
-			SubObject->MarkAsGarbage();
+			SubObject->MarkPendingKill();
 		}
 	}
 
@@ -277,14 +268,11 @@ void UGrippableBoxComponent::PreDestroyFromReplication()
 
 void UGrippableBoxComponent::GetSubobjectsWithStableNamesForNetworking(TArray<UObject*> &ObjList)
 {
-	if (bReplicateGripScripts)
+	for (int32 i = 0; i < GripLogicScripts.Num(); ++i)
 	{
-		for (int32 i = 0; i < GripLogicScripts.Num(); ++i)
+		if (UObject *SubObject = GripLogicScripts[i])
 		{
-			if (UObject* SubObject = GripLogicScripts[i])
-			{
-				ObjList.Add(SubObject);
-			}
+			ObjList.Add(SubObject);
 		}
 	}
 }
@@ -309,7 +297,7 @@ void UGrippableBoxComponent::OnComponentDestroyed(bool bDestroyingHierarchy)
 	{
 		if (UObject *SubObject = GripLogicScripts[i])
 		{
-			SubObject->MarkAsGarbage();
+			SubObject->MarkPendingKill();
 		}
 	}
 

@@ -171,7 +171,7 @@ void UInversePhysicsSkeletalMeshComponent::BlendInPhysicsInternalVR(FTickFunctio
 		else
 		{
 			PRAGMA_DISABLE_DEPRECATION_WARNINGS
-				PerformBlendPhysicsBonesVR(RequiredBones, GetEditableComponentSpaceTransforms(),  BoneSpaceTransforms);
+				PerformBlendPhysicsBonesVR(RequiredBones, BoneSpaceTransforms);
 			PRAGMA_ENABLE_DEPRECATION_WARNINGS
 				FinalizeAnimationUpdateVR();
 		}
@@ -259,7 +259,7 @@ void UpdateWorldBoneTMVR(TAssetWorldBoneTMArray& WorldBoneTMs, const TArray<FTra
 	else
 	{
 		// If not root, use our cached world-space bone transforms.
-		int32 ParentIndex = SkelComp->SkeletalMesh->GetRefSkeleton().GetParentIndex(BoneIndex);
+		int32 ParentIndex = SkelComp->SkeletalMesh->RefSkeleton.GetParentIndex(BoneIndex);
 		UpdateWorldBoneTMVR(WorldBoneTMs, InBoneSpaceTransforms, ParentIndex, SkelComp, LocalToWorldTM, Scale3D);
 		ParentTM = WorldBoneTMs[ParentIndex].TM;
 	}
@@ -274,7 +274,7 @@ void UpdateWorldBoneTMVR(TAssetWorldBoneTMArray& WorldBoneTMs, const TArray<FTra
 	}
 }
 
-void UInversePhysicsSkeletalMeshComponent::PerformBlendPhysicsBonesVR(const TArray<FBoneIndexType>& InRequiredBones, TArray<FTransform>& InOutComponentSpaceTransforms, TArray<FTransform>& InOutBoneSpaceTransforms)
+void UInversePhysicsSkeletalMeshComponent::PerformBlendPhysicsBonesVR(const TArray<FBoneIndexType>& InRequiredBones, TArray<FTransform>& InBoneSpaceTransforms)
 {
 	//SCOPE_CYCLE_COUNTER(STAT_BlendInPhysics);
 	// Get drawscale from Owner (if there is one)
@@ -284,7 +284,7 @@ void UInversePhysicsSkeletalMeshComponent::PerformBlendPhysicsBonesVR(const TArr
 	UPhysicsAsset* const PhysicsAsset = GetPhysicsAsset();
 	check(PhysicsAsset);
 
-	if (InOutComponentSpaceTransforms.Num() == 0)
+	if (GetNumComponentSpaceTransforms() == 0)
 	{
 		return;
 	}
@@ -304,7 +304,7 @@ void UInversePhysicsSkeletalMeshComponent::PerformBlendPhysicsBonesVR(const TArr
 	FMemMark Mark(FMemStack::Get());
 	// Make sure scratch space is big enough.
 	TAssetWorldBoneTMArray WorldBoneTMs;
-	WorldBoneTMs.AddZeroed(InOutComponentSpaceTransforms.Num());
+	WorldBoneTMs.AddZeroed(GetNumComponentSpaceTransforms());
 
 	FTransform LocalToWorldTM = GetComponentTransform();
 
@@ -312,6 +312,9 @@ void UInversePhysicsSkeletalMeshComponent::PerformBlendPhysicsBonesVR(const TArr
 	LocalToWorldTM.SetScale3D(LocalToWorldTM.GetScale3D().GetSignVector());
 	LocalToWorldTM.NormalizeRotation();
 	//LocalToWorldTM.RemoveScaling();
+
+	TArray<FTransform>& EditableComponentSpaceTransforms = GetEditableComponentSpaceTransforms();
+
 	struct FBodyTMPair
 	{
 		FBodyInstance* BI;
@@ -330,24 +333,13 @@ void UInversePhysicsSkeletalMeshComponent::PerformBlendPhysicsBonesVR(const TArr
 				int32 BoneIndex = InRequiredBones[i];
 
 				// See if this is a physics bone..
-				int32 BodyIndex = PhysicsAsset->FindBodyIndex(SkeletalMesh->GetRefSkeleton().GetBoneName(BoneIndex));
-				// need to update back to physics so that physics knows where it was after blending
+				int32 BodyIndex = PhysicsAsset->FindBodyIndex(SkeletalMesh->RefSkeleton.GetBoneName(BoneIndex));
+				// need to update back to physX so that physX knows where it was after blending
 				FBodyInstance* PhysicsAssetBodyInstance = nullptr;
 
 				// If so - get its world space matrix and its parents world space matrix and calc relative atom.
 				if (BodyIndex != INDEX_NONE)
 				{
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-					// tracking down TTP 280421. Remove this if this doesn't happen. 
-					if (!ensure(Bodies.IsValidIndex(BodyIndex)))
-					{
-						UE_LOG(LogPhysics, Warning, TEXT("%s(Mesh %s, PhysicsAsset %s)"),
-							*GetName(), *GetNameSafe(SkeletalMesh), *GetNameSafe(PhysicsAsset));
-						UE_LOG(LogPhysics, Warning, TEXT(" - # of BodySetup (%d), # of Bodies (%d), Invalid BodyIndex(%d)"),
-							PhysicsAsset->SkeletalBodySetups.Num(), Bodies.Num(), BodyIndex);
-						continue;
-					}
-#endif
 					PhysicsAssetBodyInstance = Bodies[BodyIndex];
 
 					//if simulated body copy back and blend with animation
@@ -361,19 +353,13 @@ void UInversePhysicsSkeletalMeshComponent::PerformBlendPhysicsBonesVR(const TArr
 
 						float UsePhysWeight = (bBlendPhysics) ? 1.f : PhysicsAssetBodyInstance->PhysicsBlendWeight;
 
-						// if the body instance is disabled, then we want to use the animation transform and ignore the physics one
-						if (PhysicsAssetBodyInstance->IsPhysicsDisabled())
-						{
-							UsePhysWeight = 0.0f;
-						}
-
 						// Find this bones parent matrix.
 						FTransform ParentWorldTM;
 
 						// if we wan't 'full weight' we just find 
 						if (UsePhysWeight > 0.f)
 						{
-							if (!(ensure(InOutBoneSpaceTransforms.Num())))
+							if (!(ensure(InBoneSpaceTransforms.Num())))
 							{
 								continue;
 							}
@@ -385,8 +371,8 @@ void UInversePhysicsSkeletalMeshComponent::PerformBlendPhysicsBonesVR(const TArr
 							else
 							{
 								// If not root, get parent TM from cache (making sure its up-to-date).
-								int32 ParentIndex = SkeletalMesh->GetRefSkeleton().GetParentIndex(BoneIndex);
-								UpdateWorldBoneTMVR(WorldBoneTMs, InOutBoneSpaceTransforms, ParentIndex, this, LocalToWorldTM, TotalScale3D);
+								int32 ParentIndex = SkeletalMesh->RefSkeleton.GetParentIndex(BoneIndex);
+								UpdateWorldBoneTMVR(WorldBoneTMs, InBoneSpaceTransforms, ParentIndex, this, LocalToWorldTM, TotalScale3D);
 								ParentWorldTM = WorldBoneTMs[ParentIndex].TM;
 							}
 
@@ -396,15 +382,15 @@ void UInversePhysicsSkeletalMeshComponent::PerformBlendPhysicsBonesVR(const TArr
 							RelTM.RemoveScaling();
 							FQuat RelRot(RelTM.GetRotation());
 							FVector RelPos = RecipScale3D * RelTM.GetLocation();
-							FTransform PhysAtom = FTransform(RelRot, RelPos, InOutBoneSpaceTransforms[BoneIndex].GetScale3D());
+							FTransform PhysAtom = FTransform(RelRot, RelPos, InBoneSpaceTransforms[BoneIndex].GetScale3D());
 
 							// Now blend in this atom. See if we are forcing this bone to always be blended in
-							InOutBoneSpaceTransforms[BoneIndex].Blend(InOutBoneSpaceTransforms[BoneIndex], PhysAtom, UsePhysWeight);
+							InBoneSpaceTransforms[BoneIndex].Blend(InBoneSpaceTransforms[BoneIndex], PhysAtom, UsePhysWeight);
 
 							if (!bSetParentScale)
 							{
 								//We must update RecipScale3D based on the atom scale of the root
-								TotalScale3D *= InOutBoneSpaceTransforms[0].GetScale3D();
+								TotalScale3D *= InBoneSpaceTransforms[0].GetScale3D();
 								RecipScale3D = TotalScale3D.Reciprocal();
 								bSetParentScale = true;
 							}
@@ -413,7 +399,7 @@ void UInversePhysicsSkeletalMeshComponent::PerformBlendPhysicsBonesVR(const TArr
 					}
 				}
 
-				if (!(ensure(BoneIndex < InOutComponentSpaceTransforms.Num())))
+				if (!(ensure(BoneIndex < EditableComponentSpaceTransforms.Num())))
 				{
 					continue;
 				}
@@ -421,35 +407,35 @@ void UInversePhysicsSkeletalMeshComponent::PerformBlendPhysicsBonesVR(const TArr
 				// Update SpaceBases entry for this bone now
 				if (BoneIndex == 0)
 				{
-					if (!(ensure(InOutBoneSpaceTransforms.Num())))
+					if (!(ensure(InBoneSpaceTransforms.Num())))
 					{
 						continue;
 					}
-					InOutComponentSpaceTransforms[0] = InOutBoneSpaceTransforms[0];
+					EditableComponentSpaceTransforms[0] = InBoneSpaceTransforms[0];
 				}
 				else
 				{
 					if (bLocalSpaceKinematics || BodyIndex == INDEX_NONE || Bodies[BodyIndex]->IsInstanceSimulatingPhysics())
 					{
-						if (!(ensure(BoneIndex < InOutBoneSpaceTransforms.Num())))
+						if (!(ensure(BoneIndex < InBoneSpaceTransforms.Num())))
 						{
 							continue;
 						}
-						const int32 ParentIndex = SkeletalMesh->GetRefSkeleton().GetParentIndex(BoneIndex);
-						InOutComponentSpaceTransforms[BoneIndex] = InOutBoneSpaceTransforms[BoneIndex] * InOutComponentSpaceTransforms[ParentIndex];
+						const int32 ParentIndex = SkeletalMesh->RefSkeleton.GetParentIndex(BoneIndex);
+						EditableComponentSpaceTransforms[BoneIndex] = InBoneSpaceTransforms[BoneIndex] * EditableComponentSpaceTransforms[ParentIndex];
 
 						/**
 						* Normalize rotations.
 						* We want to remove any loss of precision due to accumulation of error.
 						* i.e. A componentSpace transform is the accumulation of all of its local space parents. The further down the chain, the greater the error.
-						* SpaceBases are used by external systems, we feed this to Physics, send this to gameplay through bone and socket queries, etc.
+						* SpaceBases are used by external systems, we feed this to PhysX, send this to gameplay through bone and socket queries, etc.
 						* So this is a good place to make sure all transforms are normalized.
 						*/
-						InOutComponentSpaceTransforms[BoneIndex].NormalizeRotation();
+						EditableComponentSpaceTransforms[BoneIndex].NormalizeRotation();
 					}
 					else if (bSimulatedRootBody)
 					{
-						InOutComponentSpaceTransforms[BoneIndex] = Bodies[BodyIndex]->GetUnrealWorldTransform_AssumesLocked().GetRelativeTransform(NewComponentToWorld);
+						EditableComponentSpaceTransforms[BoneIndex] = Bodies[BodyIndex]->GetUnrealWorldTransform_AssumesLocked().GetRelativeTransform(NewComponentToWorld);
 					}
 				}
 			}
@@ -459,9 +445,6 @@ void UInversePhysicsSkeletalMeshComponent::PerformBlendPhysicsBonesVR(const TArr
 
 void UInversePhysicsSkeletalMeshComponent::RegisterEndPhysicsTick(bool bRegister)
 {
-	// For testing if the engine fix is live yet or not
-	//return Super::RegisterEndPhysicsTick(bRegister);
-
 	if (bRegister != EndPhysicsTickFunctionVR.IsTickFunctionRegistered())
 	{
 		if (bRegister)

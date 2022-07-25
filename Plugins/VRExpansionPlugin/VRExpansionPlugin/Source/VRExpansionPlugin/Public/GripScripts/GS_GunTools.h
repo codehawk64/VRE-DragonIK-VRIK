@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-//#include "Engine/Engine.h"
+#include "Engine/Engine.h"
 #include "VRGripScriptBase.h"
 #include "GripScripts/GS_Default.h"
 #include "GS_GunTools.generated.h"
@@ -225,11 +225,11 @@ public:
 	FTransform MountWorldTransform;
 	bool bIsMounted;
 	FTransform RelativeTransOnSecondaryRelease;
-	TObjectPtr<USceneComponent> CameraComponent;
+	TWeakObjectPtr<USceneComponent> CameraComponent;
 
 	// Overrides the default behavior of using the HMD location for the stock and uses this component instead
 	UPROPERTY(BlueprintReadWrite, Category = "VirtualStock")
-		TObjectPtr<USceneComponent> VirtualStockComponent;
+		TWeakObjectPtr<USceneComponent> VirtualStockComponent;
 
 	// Loads the global virtual stock settings on grip (only if locally controlled, you need to manually replicate and store the global settings
 	// In the character if networked).

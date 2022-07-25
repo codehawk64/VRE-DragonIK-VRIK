@@ -32,7 +32,6 @@ namespace UnrealBuildTool.Rules
                 new string[]
                 {
                     "Core",
-                    "NetCore",
                     "CoreUObject",
 					//"ApplicationCore",
                     "Engine",

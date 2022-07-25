@@ -297,11 +297,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Online|SteamAPI|SteamGroups")
 		FString GroupTag;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Online|SteamAPI|SteamGroups")
-		int32 numOnline = 0;
+		int32 numOnline;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Online|SteamAPI|SteamGroups")
-		int32 numInGame = 0;
+		int32 numInGame;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Online|SteamAPI|SteamGroups")
-		int32 numChatting = 0;
+		int32 numChatting;
 
 };
 
