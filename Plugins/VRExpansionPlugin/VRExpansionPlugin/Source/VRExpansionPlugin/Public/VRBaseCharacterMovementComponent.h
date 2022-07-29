@@ -106,6 +106,11 @@ public:
 	// If so then we just run the logic right away as it can't be inlined and won't be replicated
 	void CheckServerAuthedMoveAction();
 
+	// Set tracking paused for our root capsule and replicate the location to all connections
+	UFUNCTION(BlueprintCallable, Category = "VRMovement")
+		void PerformMoveAction_SetTrackingPaused(bool bNewTrackingPaused);
+	virtual void StoreSetTrackingPaused(bool bNewTrackingPaused);
+
 	// Perform a snap turn in line with the move action system
 	UFUNCTION(BlueprintCallable, Category = "VRMovement")
 		void PerformMoveAction_SnapTurn(float SnapTurnDeltaYaw, EVRMoveActionVelocityRetention VelocityRetention = EVRMoveActionVelocityRetention::VRMOVEACTION_Velocity_None, bool bFlagGripTeleport = false, bool bFlagCharacterTeleport = false);
@@ -125,17 +130,18 @@ public:
 	
 	// Perform a custom moveaction that you define, will call the OnCustomMoveActionPerformed event in the character when processed so you can run your own logic
 	// Be sure to set the minimum data replication requirements for your move action in order to save on replication.
-	// Move actions are currently limited to 1 per frame.
+	// Flags will always replicate if it is non zero
 	UFUNCTION(BlueprintCallable, Category = "VRMovement")
-		void PerformMoveAction_Custom(EVRMoveAction MoveActionToPerform, EVRMoveActionDataReq DataRequirementsForMoveAction, FVector MoveActionVector, FRotator MoveActionRotator);
+		void PerformMoveAction_Custom(EVRMoveAction MoveActionToPerform, EVRMoveActionDataReq DataRequirementsForMoveAction, FVector MoveActionVector, FRotator MoveActionRotator, uint8 MoveActionFlags = 0);
 
 	FVRMoveActionArray MoveActionArray;
 
 	bool CheckForMoveAction();
-	bool DoMASnapTurn(FVRMoveActionContainer& MoveAction);
-	bool DoMASetRotation(FVRMoveActionContainer& MoveAction);
-	bool DoMATeleport(FVRMoveActionContainer& MoveAction);
-	bool DoMAStopAllMovement(FVRMoveActionContainer& MoveAction);
+	virtual bool DoMASnapTurn(FVRMoveActionContainer& MoveAction);
+	virtual bool DoMASetRotation(FVRMoveActionContainer& MoveAction);
+	virtual bool DoMATeleport(FVRMoveActionContainer& MoveAction);
+	virtual bool DoMAStopAllMovement(FVRMoveActionContainer& MoveAction);
+	virtual bool DoMAPauseTracking(FVRMoveActionContainer& MoveAction);
 
 	FVector CustomVRInputVector;
 	FVector AdditionalVRInputVector;

@@ -16,9 +16,33 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimInstanceProxy.h"
 #include "Animation/PoseSnapshot.h"
+#include "Misc/Guid.h"
 #include "HandSocketComponent.generated.h"
 
 DECLARE_LOG_CATEGORY_EXTERN(LogVRHandSocketComponent, Log, All);
+
+// Custom serialization version for the hand socket component
+struct VREXPANSIONPLUGIN_API FVRHandSocketCustomVersion
+{
+	enum Type
+	{
+		// Before any version changes were made in the plugin
+		BeforeCustomVersionWasAdded = 0,
+
+		// Added a set state tracker to handle in editor construction edge cases
+		HandSocketStoringSetState = 1,
+
+		// -----<new versions can be added above this line>-------------------------------------------------
+		VersionPlusOne,
+		LatestVersion = VersionPlusOne - 1
+	};
+
+	// The GUID for this custom version number
+	const static FGuid GUID;
+
+private:
+	FVRHandSocketCustomVersion() {}
+};
 
 
 UENUM()
@@ -82,7 +106,7 @@ public:
 		TEnumAsByte<EVRAxis::Type> MirrorAxis;
 
 	// Axis to flip on when mirroring this socket
-	UPROPERTY(EditDefaultsOnly, Category = "Hand Socket Data|Mirroring|Advanced")
+	UPROPERTY(VisibleDefaultsOnly, Category = "Hand Socket Data|Mirroring|Advanced")
 		TEnumAsByte<EVRAxis::Type> FlipAxis;
 
 	// Relative placement of the hand to this socket
@@ -258,7 +282,25 @@ public:
 
 	inline TEnumAsByte<EAxis::Type> GetCrossAxis()
 	{
-		if (FlipAxis == EVRAxis::Y)
+		// Checking against the sign now to avoid possible mobile precision issues
+		FVector SignVec = MirroredScale.GetSignVector();
+
+		if (SignVec.X < 0)
+		{
+			return EAxis::X;
+		}
+		else if (SignVec.Z < 0)
+		{
+			return EAxis::Z;
+		}
+		else if (SignVec.Y < 0)
+		{
+			return EAxis::Y;
+		}
+
+		return GetAsEAxis(FlipAxis);
+
+		/*if (FlipAxis == EVRAxis::Y)
 		{
 			return EAxis::Z;
 		}
@@ -269,9 +311,9 @@ public:
 		else if (FlipAxis == EVRAxis::X)
 		{
 			return EAxis::Y;
-		}
+		}*/
 
-		return EAxis::None;
+		//return EAxis::None;
 	}
 	// Returns the target relative transform of the hand to the gripped object
 	// If you want the transform mirrored you need to pass in which hand is requesting the information
@@ -323,7 +365,11 @@ public:
 	virtual void OnComponentDestroyed(bool bDestroyingHierarchy) override;
 	void PoseVisualizationToAnimation(bool bForceRefresh = false);
 	bool bTickedPose;
+
+	UPROPERTY()
+		bool bDecoupled;
 #endif
+	virtual void Serialize(FArchive& Ar) override;
 	virtual void OnRegister() override;
 	virtual void PreReplication(IRepChangedPropertyTracker& ChangedPropertyTracker) override;
 
@@ -357,7 +403,7 @@ public:
 		//class USkeletalMeshComponent* HandVisualizerComponent;
 	class UPoseableMeshComponent* HandVisualizerComponent;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hand Visualization")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Transient, Category = "Hand Visualization")
 		class USkeletalMesh* VisualizationMesh;
 
 	// If we should show the visualization mesh
@@ -368,6 +414,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hand Visualization")
 		bool bMirrorVisualizationMesh;
 
+	// If we should show the grip range of this socket (shows text if always in range)
+	// If override distance is zero then it attempts to infer the value from the parent architecture
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hand Visualization")
+		bool bShowRangeVisualization;
+
+	void PositionVisualizationMesh();
+	void HideVisualizationMesh();
+
+#endif
+
+#if WITH_EDITORONLY_DATA
 	// Material to apply to the hand
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Visualization")
 		UMaterial* HandPreviewMaterial;

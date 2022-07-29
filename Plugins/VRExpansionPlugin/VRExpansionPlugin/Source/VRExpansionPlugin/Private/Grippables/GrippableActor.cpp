@@ -36,6 +36,7 @@ AGrippableActor::AGrippableActor(const FObjectInitializer& ObjectInitializer)
 	
 	bRepGripSettingsAndGameplayTags = true;
 	bAllowIgnoringAttachOnOwner = true;
+	bReplicateGripScripts = false;
 
 	// Setting a minimum of every 3rd frame (VR 90fps) for replication consideration
 	// Otherwise we will get some massive slow downs if the replication is allowed to hit the 2 per second minimum default
@@ -46,7 +47,8 @@ void AGrippableActor::GetLifetimeReplicatedProps(TArray< class FLifetimeProperty
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	DOREPLIFETIME/*_CONDITION*/(AGrippableActor, GripLogicScripts);// , COND_Custom);
+	DOREPLIFETIME_CONDITION(AGrippableActor, GripLogicScripts, COND_Custom);
+	DOREPLIFETIME(AGrippableActor, bReplicateGripScripts);
 	DOREPLIFETIME(AGrippableActor, bRepGripSettingsAndGameplayTags);
 	DOREPLIFETIME(AGrippableActor, bAllowIgnoringAttachOnOwner);
 	DOREPLIFETIME(AGrippableActor, ClientAuthReplicationData);
@@ -65,6 +67,7 @@ void AGrippableActor::PreReplication(IRepChangedPropertyTracker & ChangedPropert
 	// Don't replicate if set to not do it
 	DOREPLIFETIME_ACTIVE_OVERRIDE(AGrippableActor, VRGripInterfaceSettings, bRepGripSettingsAndGameplayTags);
 	DOREPLIFETIME_ACTIVE_OVERRIDE(AGrippableActor, GameplayTags, bRepGripSettingsAndGameplayTags);
+	DOREPLIFETIME_ACTIVE_OVERRIDE(AGrippableActor, GripLogicScripts, bReplicateGripScripts);
 
 	//Super::PreReplication(ChangedPropertyTracker);
 
@@ -261,11 +264,14 @@ bool AGrippableActor::ReplicateSubobjects(UActorChannel* Channel, class FOutBunc
 {
 	bool WroteSomething = Super::ReplicateSubobjects(Channel, Bunch, RepFlags);
 
-	for (UVRGripScriptBase* Script : GripLogicScripts)
+	if (bReplicateGripScripts)
 	{
-		if (Script && !Script->IsPendingKill())
+		for (UVRGripScriptBase* Script : GripLogicScripts)
 		{
-			WroteSomething |= Channel->ReplicateSubobject(Script, *Bunch, *RepFlags);
+			if (Script && !Script->IsPendingKill())
+			{
+				WroteSomething |= Channel->ReplicateSubobject(Script, *Bunch, *RepFlags);
+			}
 		}
 	}
 
@@ -393,7 +399,7 @@ bool AGrippableActor::AddToClientReplicationBucket()
 	if (ShouldWeSkipAttachmentReplication(false))
 	{
 		// The subsystem automatically removes entries with the same function signature so its safe to just always add here
-		GEngine->GetEngineSubsystem<UBucketUpdateSubsystem>()->AddObjectToBucket(ClientAuthReplicationData.UpdateRate, this, FName(TEXT("PollReplicationEvent")));
+		GetWorld()->GetSubsystem<UBucketUpdateSubsystem>()->AddObjectToBucket(ClientAuthReplicationData.UpdateRate, this, FName(TEXT("PollReplicationEvent")));
 		ClientAuthReplicationData.bIsCurrentlyClientAuth = true;
 
 		if (UWorld * World = GetWorld())
@@ -409,7 +415,7 @@ bool AGrippableActor::RemoveFromClientReplicationBucket()
 {
 	if (ClientAuthReplicationData.bIsCurrentlyClientAuth)
 	{
-		GEngine->GetEngineSubsystem<UBucketUpdateSubsystem>()->RemoveObjectFromBucketByFunctionName(this, FName(TEXT("PollReplicationEvent")));
+		GetWorld()->GetSubsystem<UBucketUpdateSubsystem>()->RemoveObjectFromBucketByFunctionName(this, FName(TEXT("PollReplicationEvent")));
 		CeaseReplicationBlocking();
 		return true;
 	}
@@ -644,6 +650,7 @@ void AGrippableActor::Server_GetClientAuthReplication_Implementation(const FRepM
 void AGrippableActor::OnRep_ReplicateMovement()
 {
 	if (bAllowIgnoringAttachOnOwner && (ClientAuthReplicationData.bIsCurrentlyClientAuth || ShouldWeSkipAttachmentReplication()))
+	//if (bAllowIgnoringAttachOnOwner && (ClientAuthReplicationData.bIsCurrentlyClientAuth || ShouldWeSkipAttachmentReplication()))
 	{
 		return;
 	}
@@ -673,7 +680,8 @@ void AGrippableActor::OnRep_ReplicateMovement()
 
 void AGrippableActor::OnRep_ReplicatedMovement()
 {
-	if (ClientAuthReplicationData.bIsCurrentlyClientAuth && ShouldWeSkipAttachmentReplication(false))
+	if (bAllowIgnoringAttachOnOwner && (ClientAuthReplicationData.bIsCurrentlyClientAuth || ShouldWeSkipAttachmentReplication()))
+	//if (ClientAuthReplicationData.bIsCurrentlyClientAuth && ShouldWeSkipAttachmentReplication(false))
 	{
 		return;
 	}
@@ -683,7 +691,8 @@ void AGrippableActor::OnRep_ReplicatedMovement()
 
 void AGrippableActor::PostNetReceivePhysicState()
 {
-	if ((ClientAuthReplicationData.bIsCurrentlyClientAuth || VRGripInterfaceSettings.bIsHeld) && bAllowIgnoringAttachOnOwner && ShouldWeSkipAttachmentReplication(false))
+	if (bAllowIgnoringAttachOnOwner && (ClientAuthReplicationData.bIsCurrentlyClientAuth || ShouldWeSkipAttachmentReplication()))
+	//if ((ClientAuthReplicationData.bIsCurrentlyClientAuth || VRGripInterfaceSettings.bIsHeld) && bAllowIgnoringAttachOnOwner && ShouldWeSkipAttachmentReplication(false))
 	{
 		return;
 	}
@@ -747,4 +756,20 @@ void AGrippableActor::BeginDestroy()
 	}
 
 	GripLogicScripts.Empty();
+}
+
+void AGrippableActor::GetSubobjectsWithStableNamesForNetworking(TArray<UObject*>& ObjList)
+{
+	Super::GetSubobjectsWithStableNamesForNetworking(ObjList);
+
+	if (bReplicateGripScripts)
+	{
+		for (int32 i = 0; i < GripLogicScripts.Num(); ++i)
+		{
+			if (UObject* SubObject = GripLogicScripts[i])
+			{
+				ObjList.Add(SubObject);
+			}
+		}
+	}
 }

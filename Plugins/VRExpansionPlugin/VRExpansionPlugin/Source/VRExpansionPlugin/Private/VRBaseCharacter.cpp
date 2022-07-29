@@ -16,6 +16,17 @@ FName AVRBaseCharacter::SmoothingSceneParentComponentName(TEXT("NetSmoother"));
 FName AVRBaseCharacter::VRProxyComponentName(TEXT("VRProxy"));
 
 
+FRepMovementVRCharacter::FRepMovementVRCharacter()
+: Super()
+{
+	bJustTeleported = false;
+	bJustTeleportedGrips = false;
+	bPausedTracking = false;
+	PausedTrackingLoc = FVector::ZeroVector;
+	PausedTrackingRot = 0.f;
+	Owner = nullptr;
+}
+
 AVRBaseCharacter::AVRBaseCharacter(const FObjectInitializer& ObjectInitializer)
  : Super(ObjectInitializer/*.DoNotCreateDefaultSubobject(ACharacter::MeshComponentName)*/.SetDefaultSubobjectClass<UVRBaseCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
 
@@ -120,6 +131,9 @@ AVRBaseCharacter::AVRBaseCharacter(const FObjectInitializer& ObjectInitializer)
 
 	ReplicatedMovementVR.Owner = this;
 	bFlagTeleported = false;
+	bTrackingPaused = false;
+	PausedTrackingLoc = FVector::ZeroVector;
+	PausedTrackingRot = 0.f;
 }
 
  void AVRBaseCharacter::PossessedBy(AController* NewController)
@@ -177,7 +191,7 @@ void AVRBaseCharacter::PostInitializeComponents()
 	}
 }
 
-void AVRBaseCharacter::CacheInitialMeshOffset(FVector MeshRelativeLocation, FRotator MeshRelativeRotation)
+/*void AVRBaseCharacter::CacheInitialMeshOffset(FVector MeshRelativeLocation, FRotator MeshRelativeRotation)
 {
 	BaseTranslationOffset = MeshRelativeLocation;
 	BaseRotationOffset = MeshRelativeRotation.Quaternion();
@@ -197,7 +211,7 @@ void AVRBaseCharacter::CacheInitialMeshOffset(FVector MeshRelativeLocation, FRot
 		}
 	}
 #endif
-}
+}*/
 
 void AVRBaseCharacter::GetLifetimeReplicatedProps(TArray< class FLifetimeProperty > & OutLifetimeProps) const
 {
@@ -258,7 +272,7 @@ bool AVRBaseCharacter::Server_ReZeroSeating_Validate(FTransform_NetQuantize NewT
 	return true;
 }
 
-void AVRBaseCharacter::OnCustomMoveActionPerformed_Implementation(EVRMoveAction MoveActionType, FVector MoveActionVector, FRotator MoveActionRotator)
+void AVRBaseCharacter::OnCustomMoveActionPerformed_Implementation(EVRMoveAction MoveActionType, FVector MoveActionVector, FRotator MoveActionRotator, uint8 MoveActionFlags)
 {
 
 }
@@ -375,6 +389,13 @@ void AVRBaseCharacter::OnRep_ReplicatedMovement()
 		{
 			NotifyOfTeleport(false);
 		}
+
+		bTrackingPaused = ReplicatedMovementVR.bPausedTracking;
+		if (bTrackingPaused)
+		{
+			PausedTrackingLoc = ReplicatedMovementVR.PausedTrackingLoc;
+			PausedTrackingRot = ReplicatedMovementVR.PausedTrackingRot;
+		}
 	}
 }
 
@@ -394,6 +415,9 @@ void AVRBaseCharacter::GatherCurrentMovement()
 	ReplicatedMovementVR.bJustTeleportedGrips = bFlagTeleportedGrips;
 	bFlagTeleported = false;
 	bFlagTeleportedGrips = false;
+	ReplicatedMovementVR.bPausedTracking = bTrackingPaused;
+	ReplicatedMovementVR.PausedTrackingLoc = PausedTrackingLoc;
+	ReplicatedMovementVR.PausedTrackingRot = PausedTrackingRot;
 }
 
 
@@ -543,8 +567,16 @@ void AVRBaseCharacter::InitSeatedModeTransition()
 				bUseControllerRotationYaw = SeatInformation.bOriginalControlRotation;
 
 				SetActorLocationAndRotationVR(SeatInformation.StoredTargetTransform.GetTranslation(), SeatInformation.StoredTargetTransform.Rotator(), true, true, true);
-				LeftMotionController->PostTeleportMoveGrippedObjects();
-				RightMotionController->PostTeleportMoveGrippedObjects();
+				
+				if (LeftMotionController)
+				{
+					LeftMotionController->PostTeleportMoveGrippedObjects();
+				}
+
+				if (RightMotionController)
+				{
+					RightMotionController->PostTeleportMoveGrippedObjects();
+				}
 
 				/*if (UVRBaseCharacterMovementComponent * charMovement = Cast<UVRBaseCharacterMovementComponent>(GetMovementComponent()))
 				{

@@ -22,6 +22,7 @@ enum class EVRMoveAction : uint8
 	VRMOVEACTION_Teleport = 0x02,
 	VRMOVEACTION_StopAllMovement = 0x03,
 	VRMOVEACTION_SetRotation = 0x04,
+	VRMOVEACTION_PauseTracking = 0x14, // Reserved from here up to 0x40
 	VRMOVEACTION_CUSTOM1 = 0x05,
 	VRMOVEACTION_CUSTOM2 = 0x06,
 	VRMOVEACTION_CUSTOM3 = 0x07,
@@ -32,6 +33,12 @@ enum class EVRMoveAction : uint8
 	VRMOVEACTION_CUSTOM8 = 0x0C,
 	VRMOVEACTION_CUSTOM9 = 0x0D,
 	VRMOVEACTION_CUSTOM10 = 0x0E,
+	VRMOVEACTION_CUSTOM11 = 0x0F,
+	VRMOVEACTION_CUSTOM12 = 0x10,
+	VRMOVEACTION_CUSTOM13 = 0x11,
+	VRMOVEACTION_CUSTOM14 = 0x12,
+	VRMOVEACTION_CUSTOM15 = 0x13,
+	// Up to 0x20 currently allowed for
 };
 
 // What to do with the players velocity when specific move actions are called
@@ -79,6 +86,8 @@ public:
 	UPROPERTY()
 		uint8 MoveActionFlags;
 	UPROPERTY()
+		TArray<UObject*> MoveActionObjectReferences;
+	UPROPERTY()
 		EVRMoveActionVelocityRetention VelRetentionSetting;
 
 	FVRMoveActionContainer()
@@ -95,6 +104,7 @@ public:
 		MoveActionRot = FRotator::ZeroRotator;
 		MoveActionFlags = 0;
 		VelRetentionSetting = EVRMoveActionVelocityRetention::VRMOVEACTION_Velocity_None;
+		MoveActionObjectReferences.Empty();
 	}
 
 	/** Network serialization */
@@ -103,7 +113,7 @@ public:
 	{
 		bOutSuccess = true;
 
-		Ar.SerializeBits(&MoveAction, 4); // 16 elements, only allowing 1 per frame, they aren't flags
+		Ar.SerializeBits(&MoveAction, 6); // 64 elements, only allowing 1 per frame, they aren't flags
 
 		switch (MoveAction)
 		{
@@ -232,6 +242,26 @@ public:
 		}break;
 		case EVRMoveAction::VRMOVEACTION_StopAllMovement:
 		{}break;
+		case EVRMoveAction::VRMOVEACTION_PauseTracking:
+		{
+
+			Ar.SerializeBits(&MoveActionFlags, 1);
+			bOutSuccess &= SerializePackedVector<100, 30>(MoveActionLoc, Ar);
+
+			uint16 Yaw = 0;
+			// Loc and rot for capsule should also be sent here
+			if (Ar.IsSaving())
+			{
+				Yaw = FRotator::CompressAxisToShort(MoveActionRot.Yaw);
+				Ar << Yaw;
+			}
+			else
+			{
+				Ar << Yaw;
+				MoveActionRot.Yaw = FRotator::DecompressAxisFromShort(Yaw);
+			}
+
+		}break;
 		default: // Everything else
 		{
 			// Defines how much to replicate - only 4 possible values, 0 - 3 so only send 2 bits
@@ -242,6 +272,20 @@ public:
 
 			if (((uint8)MoveActionDataReq & (uint8)EVRMoveActionDataReq::VRMOVEACTIONDATA_ROT) != 0)
 				MoveActionRot.SerializeCompressedShort(Ar);
+
+			bool bSerializeObjects = MoveActionObjectReferences.Num() > 0;
+			Ar.SerializeBits(&bSerializeObjects, 1);
+			if (bSerializeObjects)
+			{
+				Ar << MoveActionObjectReferences;
+			}
+
+			bool bSerializeFlags = MoveActionFlags != 0x00;
+			Ar.SerializeBits(&bSerializeFlags, 1);
+			if (bSerializeFlags)
+			{
+				Ar << MoveActionFlags;
+			}
 
 		}break;
 		}
@@ -601,6 +645,7 @@ public:
 	FVector_NetQuantize100 VRCapsuleLocation;
 	FVector_NetQuantize100 LFDiff;
 	uint16 VRCapsuleRotation;
+	EVRConjoinedMovementModes ReplicatedMovementMode;
 	FVRConditionalMoveRep ConditionalMoveReps;
 
 	FVRCharacterNetworkMoveData();

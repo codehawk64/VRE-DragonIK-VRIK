@@ -57,6 +57,7 @@ AGrippableSkeletalMeshActor::AGrippableSkeletalMeshActor(const FObjectInitialize
 	bReplicates = true;
 
 	bRepGripSettingsAndGameplayTags = true;
+	bReplicateGripScripts = false;
 	bAllowIgnoringAttachOnOwner = true;
 
 	// Setting a minimum of every 3rd frame (VR 90fps) for replication consideration
@@ -68,7 +69,8 @@ void AGrippableSkeletalMeshActor::GetLifetimeReplicatedProps(TArray< class FLife
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	DOREPLIFETIME/*_CONDITION*/(AGrippableSkeletalMeshActor, GripLogicScripts);// , COND_Custom);
+	DOREPLIFETIME_CONDITION(AGrippableSkeletalMeshActor, GripLogicScripts, COND_Custom);
+	DOREPLIFETIME(AGrippableSkeletalMeshActor, bReplicateGripScripts);
 	DOREPLIFETIME(AGrippableSkeletalMeshActor, bRepGripSettingsAndGameplayTags);
 	DOREPLIFETIME(AGrippableSkeletalMeshActor, bAllowIgnoringAttachOnOwner);
 	DOREPLIFETIME(AGrippableSkeletalMeshActor, ClientAuthReplicationData);
@@ -86,6 +88,7 @@ void AGrippableSkeletalMeshActor::PreReplication(IRepChangedPropertyTracker& Cha
 	// Don't replicate if set to not do it
 	DOREPLIFETIME_ACTIVE_OVERRIDE(AGrippableSkeletalMeshActor, VRGripInterfaceSettings, bRepGripSettingsAndGameplayTags);
 	DOREPLIFETIME_ACTIVE_OVERRIDE(AGrippableSkeletalMeshActor, GameplayTags, bRepGripSettingsAndGameplayTags);
+	DOREPLIFETIME_ACTIVE_OVERRIDE(AGrippableSkeletalMeshActor, GripLogicScripts, bReplicateGripScripts);
 
 	//Super::PreReplication(ChangedPropertyTracker);
 
@@ -229,11 +232,14 @@ bool AGrippableSkeletalMeshActor::ReplicateSubobjects(UActorChannel* Channel, cl
 {
 	bool WroteSomething = Super::ReplicateSubobjects(Channel, Bunch, RepFlags);
 
-	for (UVRGripScriptBase* Script : GripLogicScripts)
+	if (bReplicateGripScripts)
 	{
-		if (Script && !Script->IsPendingKill())
+		for (UVRGripScriptBase* Script : GripLogicScripts)
 		{
-			WroteSomething |= Channel->ReplicateSubobject(Script, *Bunch, *RepFlags);
+			if (Script && !Script->IsPendingKill())
+			{
+				WroteSomething |= Channel->ReplicateSubobject(Script, *Bunch, *RepFlags);
+			}
 		}
 	}
 
@@ -365,7 +371,7 @@ bool AGrippableSkeletalMeshActor::AddToClientReplicationBucket()
 	if (ShouldWeSkipAttachmentReplication(false))
 	{
 		// The subsystem automatically removes entries with the same function signature so its safe to just always add here
-		GEngine->GetEngineSubsystem<UBucketUpdateSubsystem>()->AddObjectToBucket(ClientAuthReplicationData.UpdateRate, this, FName(TEXT("PollReplicationEvent")));
+		GetWorld()->GetSubsystem<UBucketUpdateSubsystem>()->AddObjectToBucket(ClientAuthReplicationData.UpdateRate, this, FName(TEXT("PollReplicationEvent")));
 		ClientAuthReplicationData.bIsCurrentlyClientAuth = true;
 
 		if (UWorld* World = GetWorld())
@@ -381,7 +387,7 @@ bool AGrippableSkeletalMeshActor::RemoveFromClientReplicationBucket()
 {
 	if (ClientAuthReplicationData.bIsCurrentlyClientAuth)
 	{
-		GEngine->GetEngineSubsystem<UBucketUpdateSubsystem>()->RemoveObjectFromBucketByFunctionName(this, FName(TEXT("PollReplicationEvent")));
+		GetWorld()->GetSubsystem<UBucketUpdateSubsystem>()->RemoveObjectFromBucketByFunctionName(this, FName(TEXT("PollReplicationEvent")));
 		CeaseReplicationBlocking();
 		return true;
 	}
@@ -611,7 +617,8 @@ void AGrippableSkeletalMeshActor::Server_GetClientAuthReplication_Implementation
 
 void AGrippableSkeletalMeshActor::OnRep_AttachmentReplication()
 {
-	if (bAllowIgnoringAttachOnOwner && ShouldWeSkipAttachmentReplication())
+	if (bAllowIgnoringAttachOnOwner && (ClientAuthReplicationData.bIsCurrentlyClientAuth || ShouldWeSkipAttachmentReplication()))
+	//if (bAllowIgnoringAttachOnOwner && ShouldWeSkipAttachmentReplication())
 	{
 		return;
 	}
@@ -664,6 +671,7 @@ void AGrippableSkeletalMeshActor::OnRep_AttachmentReplication()
 void AGrippableSkeletalMeshActor::OnRep_ReplicateMovement()
 {
 	if (bAllowIgnoringAttachOnOwner && (ClientAuthReplicationData.bIsCurrentlyClientAuth || ShouldWeSkipAttachmentReplication()))
+	//if (bAllowIgnoringAttachOnOwner && (ClientAuthReplicationData.bIsCurrentlyClientAuth || ShouldWeSkipAttachmentReplication()))
 	{
 		return;
 	}
@@ -693,7 +701,8 @@ void AGrippableSkeletalMeshActor::OnRep_ReplicateMovement()
 
 void AGrippableSkeletalMeshActor::OnRep_ReplicatedMovement()
 {
-	if (ClientAuthReplicationData.bIsCurrentlyClientAuth && ShouldWeSkipAttachmentReplication(false))
+	if (bAllowIgnoringAttachOnOwner && (ClientAuthReplicationData.bIsCurrentlyClientAuth || ShouldWeSkipAttachmentReplication()))
+	//if (ClientAuthReplicationData.bIsCurrentlyClientAuth && ShouldWeSkipAttachmentReplication(false))
 	{
 		return;
 	}
@@ -703,7 +712,8 @@ void AGrippableSkeletalMeshActor::OnRep_ReplicatedMovement()
 
 void AGrippableSkeletalMeshActor::PostNetReceivePhysicState()
 {
-	if ((ClientAuthReplicationData.bIsCurrentlyClientAuth || VRGripInterfaceSettings.bIsHeld) && bAllowIgnoringAttachOnOwner && ShouldWeSkipAttachmentReplication(false))
+	if (bAllowIgnoringAttachOnOwner && (ClientAuthReplicationData.bIsCurrentlyClientAuth || ShouldWeSkipAttachmentReplication()))
+	//if ((ClientAuthReplicationData.bIsCurrentlyClientAuth || VRGripInterfaceSettings.bIsHeld) && bAllowIgnoringAttachOnOwner && ShouldWeSkipAttachmentReplication(false))
 	{
 		return;
 	}
@@ -764,4 +774,20 @@ void AGrippableSkeletalMeshActor::BeginDestroy()
 	}
 
 	GripLogicScripts.Empty();
+}
+
+void AGrippableSkeletalMeshActor::GetSubobjectsWithStableNamesForNetworking(TArray<UObject*>& ObjList)
+{
+	Super::GetSubobjectsWithStableNamesForNetworking(ObjList);
+
+	if (bReplicateGripScripts)
+	{
+		for (int32 i = 0; i < GripLogicScripts.Num(); ++i)
+		{
+			if (UObject* SubObject = GripLogicScripts[i])
+			{
+				ObjList.Add(SubObject);
+			}
+		}
+	}
 }

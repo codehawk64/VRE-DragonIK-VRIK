@@ -21,6 +21,7 @@ DEFINE_LOG_CATEGORY(LogVRRootComponent);
 
 DECLARE_CYCLE_STAT(TEXT("VRRootMovement"), STAT_VRRootMovement, STATGROUP_VRRootComponent);
 DECLARE_CYCLE_STAT(TEXT("PerformOverlapQueryVR Time"), STAT_PerformOverlapQueryVR, STATGROUP_VRRootComponent);
+DECLARE_CYCLE_STAT(TEXT("UpdateOverlapsVRRoot Time"), STAT_UpdateOverlapsVRRoot, STATGROUP_VRRootComponent);
 
 typedef TArray<const FOverlapInfo*, TInlineAllocator<8>> TInlineOverlapPointerArray;
 
@@ -543,7 +544,11 @@ void UVRRootComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, 
 
 	// Skip updates and stay in place if we have paused tracking to the HMD
 	if (bPauseTracking)
+	{
+		bHadRelativeMovement = false;
+		DifferenceFromLastFrame = FVector::ZeroVector;
 		return;
+	}
 
 	UVRBaseCharacterMovementComponent * CharMove = nullptr;
 
@@ -555,13 +560,18 @@ void UVRRootComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, 
 
 	if (IsLocallyControlled())
 	{
-		if (OptionalWaistTrackingParent.IsValid())
+		if (owningVRChar && owningVRChar->bTrackingPaused)
+		{
+			curCameraLoc = owningVRChar->PausedTrackingLoc;
+			curCameraRot = FRotator(0.f, owningVRChar->PausedTrackingRot, 0.f);
+		}
+		else if (OptionalWaistTrackingParent.IsValid())
 		{
 			FTransform NewTrans = IVRTrackedParentInterface::Default_GetWaistOrientationAndPosition(OptionalWaistTrackingParent);
 			curCameraLoc = NewTrans.GetTranslation();
 			curCameraRot = NewTrans.Rotator();
 		}
-		else if (GEngine->XRSystem.IsValid() && GEngine->XRSystem->IsHeadTrackingAllowed())
+		else if (GEngine->XRSystem.IsValid() && GEngine->XRSystem->IsHeadTrackingAllowedForWorld(*GetWorld()))
 		{
 			FQuat curRot;
 			if (!GEngine->XRSystem->GetCurrentPose(IXRTrackingSystem::HMDDeviceId, curRot, curCameraLoc))
@@ -570,7 +580,13 @@ void UVRRootComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, 
 				curCameraRot = lastCameraRot;
 			}
 			else
+			{
+				if (owningVRChar && owningVRChar->VRReplicatedCamera)
+				{
+					owningVRChar->VRReplicatedCamera->ApplyTrackingParameters(curCameraLoc);
+				}
 				curCameraRot = curRot.Rotator();
+			}
 		}
 		else if (TargetPrimitiveComponent)
 		{
@@ -676,7 +692,12 @@ void UVRRootComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, 
 	}
 	else
 	{
-		if (TargetPrimitiveComponent)
+		if (owningVRChar && owningVRChar->bTrackingPaused)
+		{
+			curCameraLoc = owningVRChar->PausedTrackingLoc;
+			curCameraRot = FRotator(0.f, owningVRChar->PausedTrackingRot, 0.f);
+		}
+		else if (TargetPrimitiveComponent)
 		{
 			curCameraRot = TargetPrimitiveComponent->GetRelativeRotation();
 			curCameraLoc = TargetPrimitiveComponent->GetRelativeLocation();
@@ -947,6 +968,14 @@ bool UVRRootComponent::MoveComponentImpl(const FVector& Delta, const FQuat& NewR
 		return false;
 	}
 
+	const bool bSkipPhysicsMove = ((MoveFlags & MOVECOMP_SkipPhysicsMove) != MOVECOMP_NoFlags);
+
+	if (!this->IsSimulatingPhysics() && bSkipPhysicsMove)
+	{
+		// Phys thread is updating this when we don't want it to, stop it chaos!
+		return false;
+	}
+
 	ConditionalUpdateComponentToWorld();
 
 	// Init HitResult
@@ -978,7 +1007,7 @@ bool UVRRootComponent::MoveComponentImpl(const FVector& Delta, const FQuat& NewR
 		DeltaSizeSq = 0.f;
 	}
 
-	const bool bSkipPhysicsMove = ((MoveFlags & MOVECOMP_SkipPhysicsMove) != MOVECOMP_NoFlags);
+	//const bool bSkipPhysicsMove = ((MoveFlags & MOVECOMP_SkipPhysicsMove) != MOVECOMP_NoFlags);
 
 	// WARNING: HitResult is only partially initialized in some paths. All data is valid only if bFilledHitResult is true.
 	FHitResult BlockingHit(NoInit);
@@ -1237,6 +1266,7 @@ bool UVRRootComponent::MoveComponentImpl(const FVector& Delta, const FQuat& NewR
 bool UVRRootComponent::UpdateOverlapsImpl(const TOverlapArrayView* NewPendingOverlaps, bool bDoNotifies, const TOverlapArrayView* OverlapsAtEndLocation)
 {
 	//SCOPE_CYCLE_COUNTER(STAT_UpdateOverlaps);
+	SCOPE_CYCLE_COUNTER(STAT_UpdateOverlapsVRRoot);
 	SCOPE_CYCLE_UOBJECT(ComponentScope, this);
 
 	// if we haven't begun play, we're still setting things up (e.g. we might be inside one of the construction scripts)

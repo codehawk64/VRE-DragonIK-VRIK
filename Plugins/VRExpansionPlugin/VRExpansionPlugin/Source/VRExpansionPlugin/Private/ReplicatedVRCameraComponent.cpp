@@ -11,6 +11,36 @@
 #include "IHeadMountedDisplay.h"
 
 
+// Ported epics head tracking allowed for world fix back to this temp patch in 4.27
+bool TMP_IsHeadTrackingAllowedForWorld(IXRTrackingSystem* XRSystem, UWorld* World)
+{
+#if WITH_EDITOR
+	// This implementation is constrained by hotfix rules.  It would be better to cache this somewhere.
+	if (!XRSystem->IsHeadTrackingAllowed())
+	{
+		return false;
+	}
+
+	if (World->WorldType != EWorldType::PIE)
+	{
+		return true;
+	}
+
+	// If we are a pie instance then the first pie world that is not a dedicated server uses head tracking
+	const int32 MyPIEInstanceID = World->GetOutermost()->PIEInstanceID;
+	for (const FWorldContext& WorldContext : GEngine->GetWorldContexts())
+	{
+		if (WorldContext.WorldType == EWorldType::PIE && WorldContext.RunAsDedicated == false && WorldContext.World())
+		{
+			return WorldContext.World()->GetOutermost()->PIEInstanceID == MyPIEInstanceID;
+		}
+	}
+	return false;
+#endif
+	return XRSystem->IsHeadTrackingAllowedForWorld(*World);
+}
+
+
 UReplicatedVRCameraComponent::UReplicatedVRCameraComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
@@ -28,7 +58,16 @@ UReplicatedVRCameraComponent::UReplicatedVRCameraComponent(const FObjectInitiali
 
 	bUsePawnControlRotation = false;
 	bAutoSetLockToHmd = true;
+	bScaleTracking = false;
+	TrackingScaler = FVector(1.0f);
 	bOffsetByHMD = false;
+	bLimitMinHeight = false;
+	MinimumHeightAllowed = 0.0f;
+	bLimitMaxHeight = false;
+	MaxHeightAllowed = 300.f;
+	bLimitBounds = false;
+	// Just shy of 20' distance from the center of tracked space
+	MaximumTrackedBounds = 1028;
 
 	bSetPositionDuringTick = false;
 	bSmoothReplicatedMotion = false;
@@ -36,6 +75,10 @@ UReplicatedVRCameraComponent::UReplicatedVRCameraComponent(const FObjectInitiali
 	bReppedOnce = false;
 
 	OverrideSendTransform = nullptr;
+
+	LastRelativePosition = FTransform::Identity;
+	bSampleVelocityInWorldSpace = false;
+	bHadValidFirstVelocity = false;
 
 	//bUseVRNeckOffset = true;
 	//VRNeckOffset = FTransform(FRotator::ZeroRotator, FVector(15.0f,0,0), FVector(1.0f));
@@ -124,6 +167,41 @@ void UReplicatedVRCameraComponent::OnAttachmentChanged()
 	Super::OnAttachmentChanged();
 }
 
+bool UReplicatedVRCameraComponent::HasTrackingParameters()
+{
+	return bOffsetByHMD || bScaleTracking || bLimitMaxHeight || bLimitMinHeight || bLimitBounds;
+}
+
+void UReplicatedVRCameraComponent::ApplyTrackingParameters(FVector& OriginalPosition)
+{
+	if (bOffsetByHMD)
+	{
+		OriginalPosition.X = 0;
+		OriginalPosition.Y = 0;
+	}
+
+	if (bLimitBounds)
+	{
+		OriginalPosition.X = FMath::Clamp(OriginalPosition.X, -MaximumTrackedBounds, MaximumTrackedBounds);
+		OriginalPosition.Y = FMath::Clamp(OriginalPosition.Y, -MaximumTrackedBounds, MaximumTrackedBounds);
+	}
+
+	if (bScaleTracking)
+	{
+		OriginalPosition *= TrackingScaler;
+	}
+
+	if (bLimitMaxHeight)
+	{
+		OriginalPosition.Z = FMath::Min(MaxHeightAllowed, OriginalPosition.Z);
+	}
+
+	if (bLimitMinHeight)
+	{
+		OriginalPosition.Z = FMath::Max(MinimumHeightAllowed, OriginalPosition.Z);
+	}
+}
+
 void UReplicatedVRCameraComponent::UpdateTracking(float DeltaTime)
 {
 	bHasAuthority = IsLocallyControlled();
@@ -132,17 +210,16 @@ void UReplicatedVRCameraComponent::UpdateTracking(float DeltaTime)
 	if (bHasAuthority)
 	{
 		// For non view target positional updates (third party and the like)
-		if (bSetPositionDuringTick && bLockToHmd && GEngine->XRSystem.IsValid() && GEngine->XRSystem->IsHeadTrackingAllowed())
+		if (bSetPositionDuringTick && bLockToHmd && GEngine->XRSystem.IsValid() && GEngine->XRSystem->IsHeadTrackingAllowedForWorld(*GetWorld()))
 		{
 			//ResetRelativeTransform();
 			FQuat Orientation;
 			FVector Position;
 			if (GEngine->XRSystem->GetCurrentPose(IXRTrackingSystem::HMDDeviceId, Orientation, Position))
 			{
-				if (bOffsetByHMD)
+				if (HasTrackingParameters())
 				{
-					Position.X = 0;
-					Position.Y = 0;
+					ApplyTrackingParameters(Position);
 				}
 
 				SetRelativeTransform(FTransform(Orientation, Position));
@@ -178,7 +255,17 @@ void UReplicatedVRCameraComponent::UpdateTracking(float DeltaTime)
 			}
 		}
 	}
+
+	// Save out the component velocity from this and last frame
+	if(bHadValidFirstVelocity || !LastRelativePosition.Equals(FTransform::Identity))
+	{ 
+		bHadValidFirstVelocity = true;
+		ComponentVelocity = ((bSampleVelocityInWorldSpace ? GetComponentLocation() : GetRelativeLocation()) - LastRelativePosition.GetTranslation()) / DeltaTime;
+	}
+
+	LastRelativePosition = bSampleVelocityInWorldSpace ? this->GetComponentTransform() : this->GetRelativeTransform();
 }
+
 
 void UReplicatedVRCameraComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction)
 {
@@ -258,7 +345,8 @@ void UReplicatedVRCameraComponent::GetCameraView(float DeltaTime, FMinimalViewIn
 
 		if (XRCamera.IsValid())
 		{
-			if (XRSystem->IsHeadTrackingAllowed())
+			//if (XRSystem->IsHeadTrackingAllowedForWorld(*GetWorld()))
+			if (TMP_IsHeadTrackingAllowedForWorld(XRSystem, GetWorld()))
 			{
 				const FTransform ParentWorld = CalcNewComponentToWorld(FTransform());
 				XRCamera->SetupLateUpdate(ParentWorld, this, bLockToHmd == 0);
@@ -269,10 +357,9 @@ void UReplicatedVRCameraComponent::GetCameraView(float DeltaTime, FMinimalViewIn
 					FVector Position;
 					if (XRCamera->UpdatePlayerCamera(Orientation, Position))
 					{
-						if (bOffsetByHMD)
+						if (HasTrackingParameters())
 						{
-							Position.X = 0;
-							Position.Y = 0;
+							ApplyTrackingParameters(Position);
 						}
 
 						SetRelativeTransform(FTransform(Orientation, Position));

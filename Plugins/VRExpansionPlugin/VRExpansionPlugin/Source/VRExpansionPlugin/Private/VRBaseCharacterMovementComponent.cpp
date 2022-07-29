@@ -578,6 +578,21 @@ void UVRBaseCharacterMovementComponent::CheckServerAuthedMoveAction()
 	}
 }
 
+void UVRBaseCharacterMovementComponent::PerformMoveAction_SetTrackingPaused(bool bNewTrackingPaused)
+{
+	StoreSetTrackingPaused(bNewTrackingPaused);
+}
+
+void UVRBaseCharacterMovementComponent::StoreSetTrackingPaused(bool bNewTrackingPaused)
+{
+	FVRMoveActionContainer MoveAction;
+	MoveAction.MoveAction = EVRMoveAction::VRMOVEACTION_PauseTracking;
+	MoveAction.MoveActionFlags = bNewTrackingPaused;
+	MoveActionArray.MoveActions.Add(MoveAction);
+	CheckServerAuthedMoveAction();
+}
+
+
 void UVRBaseCharacterMovementComponent::PerformMoveAction_SnapTurn(float DeltaYawAngle, EVRMoveActionVelocityRetention VelocityRetention, bool bFlagGripTeleport, bool bFlagCharacterTeleport)
 {
 	FVRMoveActionContainer MoveAction;
@@ -660,7 +675,7 @@ void UVRBaseCharacterMovementComponent::PerformMoveAction_StopAllMovement()
 	CheckServerAuthedMoveAction();
 }
 
-void UVRBaseCharacterMovementComponent::PerformMoveAction_Custom(EVRMoveAction MoveActionToPerform, EVRMoveActionDataReq DataRequirementsForMoveAction, FVector MoveActionVector, FRotator MoveActionRotator)
+void UVRBaseCharacterMovementComponent::PerformMoveAction_Custom(EVRMoveAction MoveActionToPerform, EVRMoveActionDataReq DataRequirementsForMoveAction, FVector MoveActionVector, FRotator MoveActionRotator, uint8 MoveActionFlags)
 {
 	FVRMoveActionContainer MoveAction;
 	MoveAction.MoveAction = MoveActionToPerform;
@@ -669,6 +684,7 @@ void UVRBaseCharacterMovementComponent::PerformMoveAction_Custom(EVRMoveAction M
 	MoveAction.MoveActionLoc = RoundDirectMovement(MoveActionVector);
 	MoveAction.MoveActionRot = MoveActionRotator;
 	MoveAction.MoveActionDataReq = DataRequirementsForMoveAction;
+	MoveAction.MoveActionFlags = MoveActionFlags;
 	MoveActionArray.MoveActions.Add(MoveAction);
 
 	CheckServerAuthedMoveAction();
@@ -696,13 +712,17 @@ bool UVRBaseCharacterMovementComponent::CheckForMoveAction()
 		{
 			/*return */DoMASetRotation(MoveAction);
 		}break;
+		case EVRMoveAction::VRMOVEACTION_PauseTracking:
+		{
+			/*return */DoMAPauseTracking(MoveAction);
+		}break;
 		case EVRMoveAction::VRMOVEACTION_None:
 		{}break;
 		default: // All other move actions (CUSTOM)
 		{
 			if (AVRBaseCharacter * OwningCharacter = Cast<AVRBaseCharacter>(GetCharacterOwner()))
 			{
-				OwningCharacter->OnCustomMoveActionPerformed(MoveAction.MoveAction, MoveAction.MoveActionLoc, MoveAction.MoveActionRot);
+				OwningCharacter->OnCustomMoveActionPerformed(MoveAction.MoveAction, MoveAction.MoveActionLoc, MoveAction.MoveActionRot, MoveAction.MoveActionFlags);
 			}
 		}break;
 		}
@@ -898,6 +918,18 @@ bool UVRBaseCharacterMovementComponent::DoMAStopAllMovement(FVRMoveActionContain
 		return true;
 	}
 
+	return false;
+}
+
+bool UVRBaseCharacterMovementComponent::DoMAPauseTracking(FVRMoveActionContainer& MoveAction)
+{
+	if (AVRBaseCharacter* OwningCharacter = Cast<AVRBaseCharacter>(GetCharacterOwner()))
+	{
+		OwningCharacter->bTrackingPaused = MoveAction.MoveActionFlags > 0;
+		OwningCharacter->PausedTrackingLoc = MoveAction.MoveActionLoc;
+		OwningCharacter->PausedTrackingRot = MoveAction.MoveActionRot.Yaw;
+		return true;
+	}
 	return false;
 }
 
@@ -1950,8 +1982,8 @@ FVector UVRBaseCharacterMovementComponent::GetCustomInputVector()
 void UVRBaseCharacterMovementComponent::UpdateFromCompressedFlags(uint8 Flags)
 {
 	// If is a custom or VR custom movement mode
-	int32 MovementFlags = (Flags >> 2) & 15;
-	VRReplicatedMovementMode = (EVRConjoinedMovementModes)MovementFlags;
+	//int32 MovementFlags = (Flags >> 2) & 15;
+	//VRReplicatedMovementMode = (EVRConjoinedMovementModes)MovementFlags;
 
 	//bWantsToSnapTurn = ((Flags & FSavedMove_VRBaseCharacter::FLAG_SnapTurn) != 0);
 
