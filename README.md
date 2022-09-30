@@ -1,3 +1,5 @@
+[NOTE : This project is made in UE 4.27]
+
 ### How do I get set up? ###
 
 Current compatible versions for template: Latest Engine Version (Template is not kept to as many compatible versions as the plugin itself).
