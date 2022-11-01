@@ -4,6 +4,8 @@
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 
+class UTexture;
+
 //Re-defined here as I can't load ISteamVRPlugin on non windows platforms
 // Make sure to update if it changes
 
@@ -494,9 +496,12 @@ enum class EBPOpenVRHMDDeviceType : uint8
 	DT_ValveIndex,
 	DT_Vive,
 	DT_ViveCosmos,
+	DT_ViveFocus,
+	DT_ViveFocus3,
 	DT_OculusQuestHMD,
 	DT_OculusHMD,
 	DT_WindowsMR,
+	DT_PicoNeo3,
 	//DT_OSVR,
 	DT_Unknown
 };
@@ -512,6 +517,7 @@ enum class EBPOpenVRControllerDeviceType : uint8
 	DT_RiftSController,
 	DT_QuestController,
 	DT_WMRController,
+	DT_PicoNeo3Controller,
 	DT_UnknownController
 };
 

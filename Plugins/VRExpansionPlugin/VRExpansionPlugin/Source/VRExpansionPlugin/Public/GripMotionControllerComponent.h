@@ -162,19 +162,21 @@ public:
 	void EndPhysicsTickComponent(FGripComponentEndPhysicsTickFunction& ThisTickFunction);
 	void RegisterEndPhysicsTick(bool bRegister);
 
-
-
+	// If true then we will sample the post physics scene to get the relative location of this object.
+	// This lets us reproject that relative position prior to running the grip logic.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GripMotionController|Advanced")
+		bool bProjectNonSimulatingGrips;
 
 
 	// The grip script that defines the default behaviors of grips
 	// Don't edit this unless you really know what you are doing, leave it empty
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripMotionController")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripMotionController|Advanced")
 		TSubclassOf<class UVRGripScriptBase> DefaultGripScriptClass;
 	
 	// This is the pointer to the default grip script
 	// It is here to access so if you want to set some variables on your override then you can
 	// Due to a bug with instanced variables and parent classes you can't directly edit this in subclass in the details panel
-	UPROPERTY(VisibleAnywhere, Transient, BlueprintReadOnly, Category = "GripMotionController")
+	UPROPERTY(VisibleAnywhere, Transient, BlueprintReadOnly, Category = "GripMotionController|Advanced")
 		TObjectPtr<UVRGripScriptBase> DefaultGripScript;
 
 	// Lerping functions and events
@@ -190,12 +192,48 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Grip Events")
 		FVROnControllerGripSignature OnLerpToHandFinished;
 
+
+	// If true we will scale the tracking of the motion controller by the TrackingScaler value
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripMotionController|Advanced|Tracking")
+		bool bScaleTracking;
+
+	// A scale to be applied to the tracked positions of the controller if bScaleTracking is true
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripMotionController|Advanced|Tracking", meta = (ClampMin = "0.1", UIMin = "0.1", EditCondition = "bScaleTracking"))
+		FVector TrackingScaler;
+
+	// If true we will use the minimum height value to clamp the Z too
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripMotionController|Advanced|Tracking")
+		bool bLimitMinHeight;
+
+	// The minimum height to allow for this controller
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripMotionController|Advanced|Tracking", meta = (ClampMin = "0.0", UIMin = "0.0", EditCondition = "bLimitMinHeight"))
+		float MinimumHeight;
+
+	// If true we will use the maximum height value to clamp the Z too
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripMotionController|Advanced|Tracking")
+		bool bLimitMaxHeight;
+
+	// The maximum height to allow for this controller
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripMotionController|Advanced|Tracking", meta = (ClampMin = "0.1", UIMin = "0.1", EditCondition = "bLimitMinHeight"))
+		float MaximumHeight;
+
 	// If true will subtract the HMD's location from the position, useful for if the actors base is set to the HMD location always (simple character).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripMotionController")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripMotionController|Advanced|Tracking")
 	bool bOffsetByHMD;
 
+	// If true this controller will attempt to stay within its LeashRange distance from the HMD
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripMotionController|Advanced|Tracking")
+		bool bLeashToHMD;
+
+	// How far away from the HMD the controller should stay max (vector distance)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripMotionController|Advanced|Tracking", meta = (ClampMin = "0.1", UIMin = "0.1", EditCondition = "bLeashToHMD"))
+		float LeashRange;
+
+	void ApplyTrackingParameters(FVector& OriginalPosition, bool bIsInGameThread);
+	bool HasTrackingParameters();
+
 	// When true any physics constraints will be attached to the grip pivot instead of a new kinematic actor in the scene
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripMotionController")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripMotionController|Advanced")
 		bool bConstrainToPivot;
 
 	UPROPERTY()
@@ -292,6 +330,7 @@ protected:
 	FTransform GripRenderThreadRelativeTransform;
 	FVector GripRenderThreadComponentScale;
 	FTransform GripRenderThreadProfileTransform;
+	FVector GripRenderThreadLastLocationForLateUpdate;
 
 	FDelegateHandle NewControllerProfileEvent_Handle;
 	UFUNCTION()
@@ -328,6 +367,13 @@ public:
 	// Called when an object we hold is secondary dropped
 	UPROPERTY(BlueprintAssignable, Category = "Grip Events")
 		FVROnControllerGripSignature OnSecondaryGripRemoved;
+
+	// Storage for remote players for secondary grips specifically
+	// Its more than a little hacky, but ordering of drop and the secondaries being
+	// removed on the rep notify require this in rare cases. If Epic ever fixes the last array state not containing removed
+	// grips then this would be a lot cleaner.
+	TArray<uint8> SecondaryGripIDs;
+
 
 	// Called when an object we hold has its grip transform changed
 	UPROPERTY(BlueprintAssignable, Category = "Grip Events")
@@ -432,7 +478,7 @@ public:
 
 	// Notify a client that their local grip was bad
 	UFUNCTION(Reliable, Client, Category = "GripMotionController")
-	void Client_NotifyInvalidLocalGrip(UObject * LocallyGrippedObject, uint8 GripID);
+	void Client_NotifyInvalidLocalGrip(UObject * LocallyGrippedObject, uint8 GripID, bool bWasAGripConflict = false);
 
 	// Notify the server that we locally gripped something
 	UFUNCTION(Reliable, Server, WithValidation, Category = "GripMotionController")
@@ -558,6 +604,7 @@ public:
 
 				if (Grip.GrippedObject && Grip.GrippedObject->IsValidLowLevelFast() && Grip.GrippedObject->GetClass()->ImplementsInterface(UVRGripInterface::StaticClass()))
 				{
+					SecondaryGripIDs.Add(Grip.GripID);
 					IVRGripInterface::Execute_OnSecondaryGrip(Grip.GrippedObject, this, Grip.SecondaryGripInfo.SecondaryAttachment, Grip);
 
 					TArray<UVRGripScriptBase*> GripScripts;
@@ -630,6 +677,7 @@ public:
 						}
 					}
 
+					SecondaryGripIDs.Remove(Grip.GripID);
 					OnSecondaryGripRemoved.Broadcast(Grip);
 				}
 
@@ -637,6 +685,7 @@ public:
 				{
 					if (Grip.GrippedObject && Grip.GrippedObject->IsValidLowLevelFast() && Grip.GrippedObject->GetClass()->ImplementsInterface(UVRGripInterface::StaticClass()))
 					{
+						SecondaryGripIDs.Add(Grip.GripID);
 						IVRGripInterface::Execute_OnSecondaryGrip(Grip.GrippedObject, this, Grip.SecondaryGripInfo.SecondaryAttachment, Grip);
 
 						TArray<UVRGripScriptBase*> GripScripts;
@@ -770,6 +819,12 @@ public:
 	virtual void OnRep_ReplicatedControllerTransform()
 	{
 		//ReplicatedControllerTransform.Unpack();
+
+		if (GetNetMode() < ENetMode::NM_Client && HasTrackingParameters())
+		{
+			// Ensure that the client is sending valid boundries
+			ApplyTrackingParameters(ReplicatedControllerTransform.Position, true);
+		}
 
 		if (bSmoothReplicatedMotion)
 		{

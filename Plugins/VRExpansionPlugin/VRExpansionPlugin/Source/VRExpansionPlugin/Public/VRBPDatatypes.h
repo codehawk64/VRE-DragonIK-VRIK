@@ -1453,6 +1453,7 @@ public:
 	
 	// For delta teleport and any future calculations we want to do
 	FTransform LastWorldTransform;
+	bool bSetLastWorldTransform;
 
 	// Need to skip one frame of length check post teleport with constrained objects, the constraint may have not been updated yet.
 	bool bSkipNextTeleportCheck;
@@ -1506,6 +1507,7 @@ public:
 		bIsLocked = false;
 		LastLockedRotation = FQuat::Identity;
 		LastWorldTransform.SetIdentity();
+		bSetLastWorldTransform = false;
 		bSkipNextTeleportCheck = false;
 		bSkipNextConstraintLengthCheck = false;
 		bIsPaused = false;
@@ -1625,6 +1627,7 @@ public:
 		bIsLocked(false),
 		LastLockedRotation(FRotator::ZeroRotator),
 		LastWorldTransform(FTransform::Identity),
+		bSetLastWorldTransform(false),
 		bSkipNextTeleportCheck(false),
 		bSkipNextConstraintLengthCheck(false),
 		CurrentLerpTime(0.f),
@@ -1789,7 +1792,6 @@ public:
 
 	bool bSetCOM;
 	bool bSkipResettingCom;
-	bool bSkipMassCheck;
 	bool bSkipDeletingKinematicActor;
 	bool bInitiallySetup;
 
@@ -1803,7 +1805,6 @@ public:
 		RootBoneRotation = FTransform::Identity;
 		bSetCOM = false;
 		bSkipResettingCom = false;
-		bSkipMassCheck = false;
 		bSkipDeletingKinematicActor = false;
 		bInitiallySetup = false;
 #if WITH_CHAOS

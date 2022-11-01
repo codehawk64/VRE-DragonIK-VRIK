@@ -53,10 +53,10 @@ void UCreateSessionCallbackProxyAdvanced::Activate()
 			FOnlineSessionSettings Settings;
 			Settings.NumPublicConnections = NumPublicConnections;
 			Settings.NumPrivateConnections = NumPrivateConnections;
-			Settings.bShouldAdvertise = true;
+			Settings.bShouldAdvertise = bShouldAdvertise;
 			Settings.bAllowJoinInProgress = true;
 			Settings.bIsLANMatch = bUseLAN;
-			Settings.bAllowJoinViaPresence = true;
+			Settings.bAllowJoinViaPresence = bAllowJoinViaPresence;
 			Settings.bIsDedicated = bDedicatedServer;
 
 			if (bDedicatedServer)
@@ -74,7 +74,6 @@ void UCreateSessionCallbackProxyAdvanced::Activate()
 			Settings.bAllowJoinViaPresenceFriendsOnly = bAllowJoinViaPresenceFriendsOnly;
 			Settings.bAntiCheatProtected = bAntiCheatProtected;
 			Settings.bUsesStats = bUsesStats;
-			Settings.bShouldAdvertise = bShouldAdvertise;
 
 			// These are about the only changes over the standard Create Sessions Node
 			Settings.bAllowInvites = bAllowInvites;

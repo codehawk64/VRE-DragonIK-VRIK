@@ -1,7 +1,7 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 
 #include "AutoLoginUserCallbackProxy.h"
-
+#include "Kismet/GameplayStatics.h"
 
 //////////////////////////////////////////////////////////////////////////
 // ULoginUserCallbackProxy
@@ -43,6 +43,25 @@ void UAutoLoginUserCallbackProxy::OnCompleted(int32 LocalUserNum, bool bWasSucce
 	{
 		Identity->ClearOnLoginCompleteDelegate_Handle(LocalUserNum, DelegateHandle);
 	}
+
+	if(APlayerController* PController = UGameplayStatics::GetPlayerController(WorldContextObject->GetWorld(), LocalUserNum))
+	{
+		ULocalPlayer* Player = Cast<ULocalPlayer>(PController->Player);
+
+		FUniqueNetIdRepl uniqueId(UserId.AsShared());
+
+		if (Player)
+		{
+			Player->SetCachedUniqueNetId(uniqueId);
+		}
+
+		if (APlayerState* State = PController->PlayerState)
+		{
+			// Update UniqueId. See also ShowLoginUICallbackProxy.cpp
+			State->SetUniqueId(uniqueId);
+		}
+	}
+
 
 	if (bWasSuccessful)
 	{
