@@ -1,5 +1,10 @@
 [NOTE : This project is made in UE 4.27 with a separate branch for UE 5.0]
 
+
+Download and play with the executable windows build here : https://drive.google.com/file/d/1ErjLQvJfe0Fzi9ypqu5ptEJ7S7QFo9Jq/view?usp=share_link
+(Playing the demo doesn't require the DragonIK plugin, but running the project requires it)
+
+
 ### How do I get set up? ###
 
 Current compatible versions for template: Latest Engine Version (Template is not kept to as many compatible versions as the plugin itself).
