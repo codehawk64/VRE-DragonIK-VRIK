@@ -7,6 +7,10 @@ Download and play with the executable windows build here : https://drive.google.
 
 ### How do I get set up? ###
 
+Here is a raw video recording of me copying the relevant features from the vre-dragonik project into a fresh new vre sample project.
+https://drive.google.com/file/d/159t-Lt8ze5wIYDAjYoMmFCBBqOVnqXZ7/view?usp=share_link
+
+
 Current compatible versions for template: Latest Engine Version (Template is not kept to as many compatible versions as the plugin itself).
 
 * Right click on VRExpPluginExample.uproject and switch to your preferred (compatible) engine version.
