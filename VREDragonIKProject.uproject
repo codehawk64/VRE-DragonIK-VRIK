@@ -1,6 +1,6 @@
 {
 	"FileVersion": 3,
-	"EngineAssociation": "4.27",
+	"EngineAssociation": "5.1",
 	"Category": "",
 	"Description": "",
 	"Modules": [
@@ -15,7 +15,6 @@
 			"Name": "OpenXR",
 			"Enabled": true,
 			"SupportedTargetPlatforms": [
-				"Win32",
 				"Win64",
 				"Linux",
 				"Android",
@@ -38,11 +37,7 @@
 		},
 		{
 			"Name": "OpenVRExpansionPlugin",
-			"Enabled": false
-		},
-		{
-			"Name": "AdvancedSteamSessions",
-			"Enabled": false
+			"Enabled": true
 		},
 		{
 			"Name": "OpenXRExpansionPlugin",
@@ -56,18 +51,8 @@
 		},
 		{
 			"Name": "OculusVR",
-			"Enabled": false,
-			"SupportedTargetPlatforms": [
-				"Win32",
-				"Win64",
-				"Android"
-			]
-		},
-		{
-			"Name": "OculusOpenXR",
 			"Enabled": true,
 			"SupportedTargetPlatforms": [
-				"Win32",
 				"Win64",
 				"Android"
 			]
@@ -82,6 +67,16 @@
 			]
 		},
 		{
+			"Name": "OpenXRHandTracking",
+			"Enabled": true,
+			"SupportedTargetPlatforms": [
+				"Win64",
+				"Linux",
+				"Android",
+				"HoloLens"
+			]
+		},
+		{
 			"Name": "DragonIKPlugin",
 			"Enabled": true,
 			"MarketplaceURL": "com.epicgames.launcher://ue/marketplace/content/3f3985e9eb40414aaabf645791fa4916"
@@ -90,6 +85,8 @@
 	"TargetPlatforms": [
 		"PS4",
 		"WindowsNoEditor",
-		"Android"
+		"Android",
+		"Windows",
+		"Linux"
 	]
 }
