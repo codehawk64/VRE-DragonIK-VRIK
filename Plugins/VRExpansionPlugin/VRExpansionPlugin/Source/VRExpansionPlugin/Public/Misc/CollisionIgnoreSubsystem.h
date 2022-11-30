@@ -6,11 +6,97 @@
 #include "Subsystems/WorldSubsystem.h"
 #include "TimerManager.h"
 #include "Components/PrimitiveComponent.h"
-#include "Grippables/GrippablePhysicsReplication.h"
+//#include "Grippables/GrippablePhysicsReplication.h"
+
+// For async physics scene callback modifications
+// Some of these can be moved out to the cpp
+#include "Chaos/SimCallbackObject.h"
+#include "Chaos/SimCallbackInput.h"
+#include "Chaos/ParticleHandle.h"
+//#include "Chaos/ContactModification.h"
+//#include "PBDRigidsSolver.h"
+
+
 #include "CollisionIgnoreSubsystem.generated.h"
 //#include "GrippablePhysicsReplication.generated.h"
 
+
+
+
 DECLARE_LOG_CATEGORY_EXTERN(VRE_CollisionIgnoreLog, Log, All);
+
+
+USTRUCT()
+struct FChaosParticlePair
+{
+	GENERATED_BODY()
+
+	Chaos::TPBDRigidParticleHandle<Chaos::FReal, 3>* ParticleHandle0;
+	Chaos::TPBDRigidParticleHandle<Chaos::FReal, 3>* ParticleHandle1;
+
+	FChaosParticlePair()
+	{
+		ParticleHandle0 = nullptr;
+		ParticleHandle1 = nullptr;
+	}
+
+	FChaosParticlePair(Chaos::TPBDRigidParticleHandle<Chaos::FReal, 3>* pH1, Chaos::TPBDRigidParticleHandle<Chaos::FReal, 3>* pH2)
+	{
+		ParticleHandle0 = pH1;
+		ParticleHandle1 = pH2;
+	}
+
+	FORCEINLINE bool operator==(const FChaosParticlePair& Other) const
+	{
+		return(
+			(ParticleHandle0 == Other.ParticleHandle0 || ParticleHandle0 == Other.ParticleHandle1) &&
+			(ParticleHandle1 == Other.ParticleHandle1 || ParticleHandle1 == Other.ParticleHandle0)
+			);
+	}
+};
+
+/*
+* All input is const, non-const data goes in output. 'AsyncSimState' points to non-const sim state.
+*/
+struct FSimCallbackInputVR : public Chaos::FSimCallbackInput
+{
+	virtual ~FSimCallbackInputVR() {}
+	void Reset() 
+	{
+		ParticlePairs.Empty();
+	}
+
+	TArray<FChaosParticlePair> ParticlePairs;
+
+	bool bIsInitialized;
+};
+
+struct FSimCallbackNoOutputVR : public Chaos::FSimCallbackOutput
+{
+	void Reset() {}
+};
+
+class FCollisionIgnoreSubsystemAsyncCallback : public Chaos::TSimCallbackObject<FSimCallbackInputVR, FSimCallbackNoOutputVR, Chaos::ESimCallbackOptions::ContactModification>
+{
+
+private:
+	
+	virtual void OnPreSimulate_Internal() override
+	{
+		// Copy paired bodies here?
+
+		// Actually use input data to input our paired bodies and copy over here
+	}
+
+	/**
+	* Called once per simulation step. Allows user to modify contacts
+	*
+	* NOTE: you must explicitly request contact modification when registering the callback for this to be called
+	*/
+	virtual void OnContactModification_Internal(Chaos::FCollisionContactModifier& Modifier) override;
+
+};
+
 
 USTRUCT()
 struct FCollisionPrimPair
@@ -19,9 +105,9 @@ struct FCollisionPrimPair
 public:
 
 	UPROPERTY()
-	TWeakObjectPtr<UPrimitiveComponent> Prim1;
+	TObjectPtr<UPrimitiveComponent> Prim1;
 	UPROPERTY()
-	TWeakObjectPtr<UPrimitiveComponent> Prim2;
+	TObjectPtr<UPrimitiveComponent> Prim2;
 
 	FCollisionPrimPair()
 	{
@@ -64,6 +150,18 @@ public:
 	UPROPERTY()
 	FName BoneName2;
 
+	// Flip our elements to retain a default ordering in an array
+	void FlipElements()
+	{
+		FPhysicsActorHandle tH = Actor1;
+		Actor1 = Actor2;
+		Actor2 = tH;
+
+		FName tN = BoneName1;
+		BoneName1 = BoneName2;
+		BoneName2 = tN;
+	}
+
 	FORCEINLINE bool operator==(const FCollisionIgnorePair& Other) const
 	{
 		return (
@@ -99,7 +197,12 @@ public:
 	UCollisionIgnoreSubsystem() :
 		Super()
 	{
+		ContactModifierCallback = nullptr;
 	}
+
+	FCollisionIgnoreSubsystemAsyncCallback* ContactModifierCallback;
+
+	void ConstructInput();
 
 	virtual bool DoesSupportWorldType(EWorldType::Type WorldType) const override
 	{
@@ -132,103 +235,7 @@ public:
 	//TArray<FCollisionIgnorePair> RemovedPairs;
 
 	//
-	void UpdateTimer()
-	{
-
-#if PHYSICS_INTERFACE_PHYSX
-		for (const TPair<FCollisionPrimPair, FCollisionIgnorePairArray>& Pair : RemovedPairs)
-		{
-			bool bSkipPrim1 = false;
-			bool bSkipPrim2 = false;
-
-			if (!Pair.Key.Prim1.IsValid())
-				bSkipPrim1 = true;
-
-			if (!Pair.Key.Prim2.IsValid())
-				bSkipPrim2 = true;
-
-			if (!bSkipPrim1 || !bSkipPrim2)
-			{
-				for (const FCollisionIgnorePair& BonePair : Pair.Value.PairArray)
-				{
-					bool bPrim1Exists = false;
-					bool bPrim2Exists = false;
-
-					for (const TPair<FCollisionPrimPair, FCollisionIgnorePairArray>& KeyPair : CollisionTrackedPairs)
-					{
-						if (!bPrim1Exists && !bSkipPrim1)
-						{
-							if (KeyPair.Key.Prim1 == Pair.Key.Prim1)
-							{
-								bPrim1Exists = KeyPair.Value.PairArray.ContainsByPredicate([BonePair](const FCollisionIgnorePair& Other)
-									{
-										return BonePair.BoneName1 == Other.BoneName1;
-									});
-							}
-							else if (KeyPair.Key.Prim2 == Pair.Key.Prim1)
-							{
-								bPrim1Exists = KeyPair.Value.PairArray.ContainsByPredicate([BonePair](const FCollisionIgnorePair& Other)
-									{
-										return BonePair.BoneName1 == Other.BoneName2;
-									});
-							}
-						}
-
-						if (!bPrim2Exists && !bSkipPrim2)
-						{
-							if (KeyPair.Key.Prim1 == Pair.Key.Prim2)
-							{
-								bPrim2Exists = KeyPair.Value.PairArray.ContainsByPredicate([BonePair](const FCollisionIgnorePair& Other)
-									{
-										return BonePair.BoneName2 == Other.BoneName1;
-									});
-							}
-							else if (KeyPair.Key.Prim2 == Pair.Key.Prim2)
-							{
-								bPrim2Exists = KeyPair.Value.PairArray.ContainsByPredicate([BonePair](const FCollisionIgnorePair& Other)
-									{
-										return BonePair.BoneName2 == Other.BoneName2;
-									});
-							}
-						}
-
-
-						if ((bPrim1Exists || bSkipPrim1) && (bPrim2Exists || bSkipPrim2))
-						{
-							break; // Exit early
-						}
-					}
-
-					if (!bPrim1Exists && !bSkipPrim1)
-					{
-						Pair.Key.Prim1->GetBodyInstance(BonePair.BoneName1)->SetContactModification(false);
-					}
-
-
-					if (!bPrim2Exists && !bSkipPrim2)
-					{
-						Pair.Key.Prim2->GetBodyInstance(BonePair.BoneName2)->SetContactModification(false);
-					}
-				}
-			}
-		}
-
-#endif
-		RemovedPairs.Reset();
-
-		if (CollisionTrackedPairs.Num() > 0)
-		{
-			if (!UpdateHandle.IsValid())
-			{
-				// Setup the heartbeat on 1htz checks
-				GetWorld()->GetTimerManager().SetTimer(UpdateHandle, this, &UCollisionIgnoreSubsystem::CheckActiveFilters, 1.0f, true, 1.0f);
-			}
-		}
-		else if (UpdateHandle.IsValid())
-		{
-			GetWorld()->GetTimerManager().ClearTimer(UpdateHandle);
-		}
-	}
+	void UpdateTimer(bool bChangesWereMade);
 
 	UFUNCTION(Category = "Collision")
 		void CheckActiveFilters();
@@ -239,6 +246,8 @@ public:
 	void SetComponentCollisionIgnoreState(bool bIterateChildren1, bool bIterateChildren2, UPrimitiveComponent* Prim1, FName OptionalBoneName1, UPrimitiveComponent* Prim2, FName OptionalBoneName2, bool bIgnoreCollision, bool bCheckFilters = false);
 	void RemoveComponentCollisionIgnoreState(UPrimitiveComponent* Prim1);
 	bool IsComponentIgnoringCollision(UPrimitiveComponent* Prim1);
+	bool AreComponentsIgnoringCollisions(UPrimitiveComponent* Prim1, UPrimitiveComponent* Prim2);
+	bool HasCollisionIgnorePairs();
 private:
 
 	FTimerHandle UpdateHandle;

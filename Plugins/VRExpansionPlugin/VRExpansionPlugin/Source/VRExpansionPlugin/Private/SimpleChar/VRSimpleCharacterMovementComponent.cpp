@@ -15,6 +15,7 @@
 #include "GameFramework/GameState.h"
 #include "Engine/Engine.h"
 #include "Components/PrimitiveComponent.h"
+#include "IXRTrackingSystem.h"
 #include "Animation/AnimMontage.h"
 //#include "PhysicsEngine/DestructibleActor.h"
 
@@ -40,12 +41,12 @@ DECLARE_CYCLE_STAT(TEXT("Char CallServerMoveVRSimple"), STAT_CharacterMovementCa
 #define devCode(...)
 #endif
 
-//#include "PerfCountersHelpers.h"
-//DECLARE_CYCLE_STAT(TEXT("Char PhysWalking"), STAT_CharPhysWalking, STATGROUP_Character);
-//DECLARE_CYCLE_STAT(TEXT("Char PhysFalling"), STAT_CharPhysFalling, STATGROUP_Character);
-//DECLARE_CYCLE_STAT(TEXT("Char PhysNavWalking"), STAT_CharPhysNavWalking, STATGROUP_Character);
-const float MAX_STEP_SIDE_ZZ = 0.08f;	// maximum z value for the normal on the vertical side of steps
-const float VERTICAL_SLOPE_NORMAL_ZZ = 0.001f; // Slope is vertical if Abs(Normal.Z) <= this threshold. Accounts for precision problems that sometimes angle normals slightly off horizontal for vertical surface.
+namespace CharacterMovementConstants
+{
+	// MAGIC NUMBERS
+	const float MAX_STEP_SIDE_ZZ = 0.08f;	// maximum z value for the normal on the vertical side of steps
+	const float VERTICAL_SLOPE_NORMAL_ZZ = 0.001f; // Slope is vertical if Abs(Normal.Z) <= this threshold. Accounts for precision problems that sometimes angle normals slightly off horizontal for vertical surface.
+}
 
 UVRSimpleCharacterMovementComponent::UVRSimpleCharacterMovementComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -271,7 +272,7 @@ bool UVRSimpleCharacterMovementComponent::VRClimbStepUp(const FVector& GravDir, 
 			{
 				// We should reject the floor result if we are trying to step up an actual step where we are not able to perch (this is rare).
 				// In those cases we should instead abort the step up and try to slide along the stair.
-				if (!StepDownResult.FloorResult.bBlockingHit && StepSideZ < MAX_STEP_SIDE_ZZ)
+				if (!StepDownResult.FloorResult.bBlockingHit && StepSideZ < CharacterMovementConstants::MAX_STEP_SIDE_ZZ)
 				{
 					ScopedStepUpMovement.RevertMove();
 					return false;
@@ -421,7 +422,7 @@ void UVRSimpleCharacterMovementComponent::PhysNavWalking(float deltaTime, int32 
 			const float ProjectionScale = (OldLocation.Z > CachedNavLocation.Location.Z) ? NavMeshProjectionHeightScaleUp : NavMeshProjectionHeightScaleDown;
 			const float DistZThr = TotalCapsuleHeight * FMath::Max(0.f, ProjectionScale);
 
-			bSameNavLocation = (DistSq2D <= KINDA_SMALL_NUMBER) && (DistZ < DistZThr);
+			bSameNavLocation = (DistSq2D <= UE_KINDA_SMALL_NUMBER) && (DistZ < DistZThr);
 		}
 		else
 		{
@@ -529,6 +530,7 @@ void UVRSimpleCharacterMovementComponent::PhysFalling(float deltaTime, int32 Ite
 		const FQuat PawnRotation = UpdatedComponent->GetComponentQuat();
 		bJustTeleported = false;
 
+		const FVector OldVelocityWithRootMotion = Velocity;
 		RestorePreAdditiveRootMotionVelocity();
 		//RestorePreAdditiveVRMotionVelocity();
 
@@ -573,28 +575,40 @@ void UVRSimpleCharacterMovementComponent::PhysFalling(float deltaTime, int32 Ite
 		// Apply gravity
 		Velocity = NewFallVelocity(Velocity, Gravity, GravityTime);
 
+		//UE_LOG(LogCharacterMovement, Log, TEXT("dt=(%.6f) OldLocation=(%s) OldVelocity=(%s) OldVelocityWithRootMotion=(%s) NewVelocity=(%s)"), timeTick, *(UpdatedComponent->GetComponentLocation()).ToString(), *OldVelocity.ToString(), *OldVelocityWithRootMotion.ToString(), *Velocity.ToString());
+		ApplyRootMotionToVelocity(timeTick);
+		DecayFormerBaseVelocity(timeTick);
+
 		// See if we need to sub-step to exactly reach the apex. This is important for avoiding "cutting off the top" of the trajectory as framerate varies.
 		static const auto CVarForceJumpPeakSubstep = IConsoleManager::Get().FindConsoleVariable(TEXT("p.ForceJumpPeakSubstep"));
-		if (CVarForceJumpPeakSubstep->GetInt() != 0 && OldVelocity.Z > 0.f && Velocity.Z <= 0.f && NumJumpApexAttempts < MaxJumpApexAttemptsPerSimulation)
+		if (CVarForceJumpPeakSubstep->GetInt() != 0 && OldVelocityWithRootMotion.Z > 0.f && Velocity.Z <= 0.f && NumJumpApexAttempts < MaxJumpApexAttemptsPerSimulation)
 		{
-			const FVector DerivedAccel = (Velocity - OldVelocity) / timeTick;
+			const FVector DerivedAccel = (Velocity - OldVelocityWithRootMotion) / timeTick;
 			if (!FMath::IsNearlyZero(DerivedAccel.Z))
 			{
-				const float TimeToApex = -OldVelocity.Z / DerivedAccel.Z;
+				const float TimeToApex = -OldVelocityWithRootMotion.Z / DerivedAccel.Z;
 
 				// The time-to-apex calculation should be precise, and we want to avoid adding a substep when we are basically already at the apex from the previous iteration's work.
 				const float ApexTimeMinimum = 0.0001f;
 				if (TimeToApex >= ApexTimeMinimum && TimeToApex < timeTick)
 				{
-					const FVector ApexVelocity = OldVelocity + DerivedAccel * TimeToApex;
+					const FVector ApexVelocity = OldVelocityWithRootMotion + (DerivedAccel * TimeToApex);
 					Velocity = ApexVelocity;
 					Velocity.Z = 0.f; // Should be nearly zero anyway, but this makes apex notifications consistent.
 
 					// We only want to move the amount of time it takes to reach the apex, and refund the unused time for next iteration.
-					remainingTime += (timeTick - TimeToApex);
+					const float TimeToRefund = (timeTick - TimeToApex);
+					remainingTime += TimeToRefund;
 					timeTick = TimeToApex;
 					Iterations--;
 					NumJumpApexAttempts++;
+
+					// Refund time to any active Root Motion Sources as well
+					for (TSharedPtr<FRootMotionSource> RootMotionSource : CurrentRootMotion.RootMotionSources)
+					{
+						const float RewoundRMSTime = FMath::Max(0.0f, RootMotionSource->GetTime() - TimeToRefund);
+						RootMotionSource->SetTime(RewoundRMSTime);
+					}
 				}
 			}
 		}
@@ -612,7 +626,7 @@ void UVRSimpleCharacterMovementComponent::PhysFalling(float deltaTime, int32 Ite
 		}
 
 		// Compute change in position (using midpoint integration method).
-		FVector Adjusted = (0.5f * (OldVelocity + Velocity) * timeTick) + (AdditionalVRInputVector /** timeTick*/);
+		FVector Adjusted = (0.5f * (OldVelocityWithRootMotion + Velocity) * timeTick) + (AdditionalVRInputVector /** timeTick*/);
 
 		// Special handling if ending the jump force where we didn't apply gravity during the jump.
 		if (bEndingJumpForce && !bApplyGravityWhileJumping)
@@ -620,7 +634,7 @@ void UVRSimpleCharacterMovementComponent::PhysFalling(float deltaTime, int32 Ite
 			// We had a portion of the time at constant speed then a portion with acceleration due to gravity.
 			// Account for that here with a more correct change in position.
 			const float NonGravityTime = FMath::Max(0.f, timeTick - GravityTime);
-			Adjusted = ((OldVelocity * NonGravityTime) + (0.5f * (OldVelocity + Velocity) * GravityTime)) + (AdditionalVRInputVector /** timeTick*/);
+			Adjusted = ((OldVelocityWithRootMotion * NonGravityTime) + (0.5f * (OldVelocityWithRootMotion + Velocity) * GravityTime)) + (AdditionalVRInputVector /** timeTick*/);
 		}
 
 
@@ -707,13 +721,21 @@ void UVRSimpleCharacterMovementComponent::PhysFalling(float deltaTime, int32 Ite
 				FVector Delta = ComputeSlideVector(Adjusted, 1.f - Hit.Time, OldHitNormal, Hit);
 
 				// Compute velocity after deflection (only gravity component for RootMotion)
-				if (subTimeTickRemaining > KINDA_SMALL_NUMBER && !bJustTeleported)
+				const UPrimitiveComponent* HitComponent = Hit.GetComponent();
+				static const auto CVarUseTargetVelocityOnImpact = IConsoleManager::Get().FindConsoleVariable(TEXT("p.UseTargetVelocityOnImpact"));
+				if (CVarUseTargetVelocityOnImpact->GetInt() && !Velocity.IsNearlyZero() && MovementBaseUtility::IsSimulatedBase(HitComponent))
+				{
+					const FVector ContactVelocity = MovementBaseUtility::GetMovementBaseVelocity(HitComponent, NAME_None) + MovementBaseUtility::GetMovementBaseTangentialVelocity(HitComponent, NAME_None, Hit.ImpactPoint);
+					const FVector NewVelocity = Velocity - Hit.ImpactNormal * FVector::DotProduct(Velocity - ContactVelocity, Hit.ImpactNormal);
+					Velocity = HasAnimRootMotion() || CurrentRootMotion.HasOverrideVelocityWithIgnoreZAccumulate() ? FVector(Velocity.X, Velocity.Y, NewVelocity.Z) : NewVelocity;
+				}
+				else if (subTimeTickRemaining > UE_KINDA_SMALL_NUMBER && !bJustTeleported)
 				{
 					const FVector NewVelocity = (Delta / subTimeTickRemaining);
 					Velocity = HasAnimRootMotion() || CurrentRootMotion.HasOverrideVelocityWithIgnoreZAccumulate() ? FVector(Velocity.X, Velocity.Y, NewVelocity.Z) : NewVelocity;
 				}
 
-				if (subTimeTickRemaining > KINDA_SMALL_NUMBER && (Delta | Adjusted) > 0.f)
+				if (subTimeTickRemaining > UE_KINDA_SMALL_NUMBER && (Delta | Adjusted) > 0.f)
 				{
 					// Move in deflected direction.
 					SafeMoveUpdatedComponent(Delta, PawnRotation, true, Hit);
@@ -740,7 +762,7 @@ void UVRSimpleCharacterMovementComponent::PhysFalling(float deltaTime, int32 Ite
 						}
 
 						// Act as if there was no air control on the last move when computing new deflection.
-						if (bHasLimitedAirControl && Hit.Normal.Z > VERTICAL_SLOPE_NORMAL_ZZ)
+						if (bHasLimitedAirControl && Hit.Normal.Z > CharacterMovementConstants::VERTICAL_SLOPE_NORMAL_ZZ)
 						{
 							const FVector LastMoveNoAirControl = VelocityNoAirControl * LastMoveTimeSlice;
 							Delta = ComputeSlideVector(LastMoveNoAirControl, 1.f, OldHitNormal, Hit);
@@ -763,14 +785,14 @@ void UVRSimpleCharacterMovementComponent::PhysFalling(float deltaTime, int32 Ite
 						}
 
 						// Compute velocity after deflection (only gravity component for RootMotion)
-						if (subTimeTickRemaining > KINDA_SMALL_NUMBER && !bJustTeleported)
+						if (subTimeTickRemaining > UE_KINDA_SMALL_NUMBER && !bJustTeleported)
 						{
 							const FVector NewVelocity = (Delta / subTimeTickRemaining);
 							Velocity = HasAnimRootMotion() || CurrentRootMotion.HasOverrideVelocityWithIgnoreZAccumulate() ? FVector(Velocity.X, Velocity.Y, NewVelocity.Z) : NewVelocity;
 						}
 
 						// bDitch=true means that pawn is straddling two slopes, neither of which he can stand on
-						bool bDitch = ((OldHitImpactNormal.Z > 0.f) && (Hit.ImpactNormal.Z > 0.f) && (FMath::Abs(Delta.Z) <= KINDA_SMALL_NUMBER) && ((Hit.ImpactNormal | OldHitImpactNormal) < 0.f));
+						bool bDitch = ((OldHitImpactNormal.Z > 0.f) && (Hit.ImpactNormal.Z > 0.f) && (FMath::Abs(Delta.Z) <= UE_KINDA_SMALL_NUMBER) && ((Hit.ImpactNormal | OldHitImpactNormal) < 0.f));
 						SafeMoveUpdatedComponent(Delta, PawnRotation, true, Hit);
 						if (Hit.Time == 0.f)
 						{
@@ -809,7 +831,7 @@ void UVRSimpleCharacterMovementComponent::PhysFalling(float deltaTime, int32 Ite
 			}
 		}
 
-		if (Velocity.SizeSquared2D() <= KINDA_SMALL_NUMBER * 10.f)
+		if (Velocity.SizeSquared2D() <= UE_KINDA_SMALL_NUMBER * 10.f)
 		{
 			Velocity.X = 0.f;
 			Velocity.Y = 0.f;
@@ -916,7 +938,7 @@ void UVRSimpleCharacterMovementComponent::PhysWalking(float deltaTime, int32 Ite
 			{
 				// pawn decided to jump up
 				const float DesiredDist = Delta.Size();
-				if (DesiredDist > KINDA_SMALL_NUMBER)
+				if (DesiredDist > UE_KINDA_SMALL_NUMBER)
 				{
 					const float ActualDist = (UpdatedComponent->GetComponentLocation() - OldLocation).Size2D();
 					remainingTime += timeTick * (1.f - FMath::Min(1.f, ActualDist / DesiredDist));
@@ -1232,9 +1254,9 @@ void UVRSimpleCharacterMovementComponent::ServerMove_PerformMovement(const FChar
 		ServerData->ServerTimeStamp = MyWorld->GetTimeSeconds();
 		ServerData->ServerTimeStampLastServerMove = ServerData->ServerTimeStamp;
 
-		if (PC)
+		if (AController* CharacterController = Cast<AController>(CharacterOwner->GetController()))
 		{
-			PC->SetControlRotation(ClientControlRotation);
+			CharacterController->SetControlRotation(ClientControlRotation);
 		}
 
 		if (!bServerReadyForClient)

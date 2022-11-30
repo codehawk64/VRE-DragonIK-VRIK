@@ -3,7 +3,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "VRBPDatatypes.h"
-#include "Net/UnrealNetwork.h"
+//#include "Net/UnrealNetwork.h"
 #include "Camera/CameraComponent.h"
 #include "ReplicatedVRCameraComponent.generated.h"
 
@@ -26,7 +26,7 @@ public:
 		bool bUpdateInCharacterMovement;
 
 	UPROPERTY()
-		TWeakObjectPtr<AVRBaseCharacter> AttachChar;
+		TObjectPtr<AVRBaseCharacter> AttachChar;
 	void UpdateTracking(float DeltaTime);
 
 	virtual void OnAttachmentChanged() override;
@@ -91,14 +91,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ReplicatedCamera|Advanced|Tracking")
 		uint32 bAutoSetLockToHmd : 1;
 
-	void ApplyTrackingParameters(FVector& OriginalPosition);
+	void ApplyTrackingParameters(FVector & OriginalPosition);
 	bool HasTrackingParameters();
 
-	//UFUNCTION(BlueprintCallable, Category = Camera)
-		virtual void GetCameraView(float DeltaTime, FMinimalViewInfo& DesiredView) override;
+	// Get Camera View is no longer required, they finally broke the HMD logic out into its own section!!
+	//virtual void GetCameraView(float DeltaTime, FMinimalViewInfo& DesiredView) override;
+	virtual void HandleXRCamera() override;
 
 	UPROPERTY(EditDefaultsOnly, ReplicatedUsing = OnRep_ReplicatedCameraTransform, Category = "ReplicatedCamera|Networking")
 	FBPVRComponentPosRep ReplicatedCameraTransform;
+
+	FBPVRComponentPosRep MotionSampleUpdateBuffer[2];
 
 	FVector LastUpdatesRelativePosition;
 	FRotator LastUpdatesRelativeRotation;
@@ -121,17 +124,34 @@ public:
 
 		if (bSmoothReplicatedMotion)
 		{
+			static const auto CVarDoubleBufferTrackedDevices = IConsoleManager::Get().FindConsoleVariable(TEXT("vr.DoubleBufferReplicatedTrackedDevices"));
 			if (bReppedOnce)
 			{
 				bLerpingPosition = true;
 				NetUpdateCount = 0.0f;
 				LastUpdatesRelativePosition = this->GetRelativeLocation();
 				LastUpdatesRelativeRotation = this->GetRelativeRotation();
+
+				if (CVarDoubleBufferTrackedDevices->GetBool())
+				{
+					MotionSampleUpdateBuffer[0] = MotionSampleUpdateBuffer[1];
+					MotionSampleUpdateBuffer[1] = ReplicatedCameraTransform;
+				}
+				else
+				{
+					MotionSampleUpdateBuffer[0] = ReplicatedCameraTransform;
+					// Also set the buffered value in case double buffering gets turned on
+					MotionSampleUpdateBuffer[1] = MotionSampleUpdateBuffer[0];
+				}
 			}
 			else
 			{
 				SetRelativeLocationAndRotation(ReplicatedCameraTransform.Position, ReplicatedCameraTransform.Rotation);
 				bReppedOnce = true;
+
+				// Filling the second index in as well in case they turn on double buffering
+				MotionSampleUpdateBuffer[1] = ReplicatedCameraTransform;
+				MotionSampleUpdateBuffer[0] = MotionSampleUpdateBuffer[1];
 			}
 		}
 		else

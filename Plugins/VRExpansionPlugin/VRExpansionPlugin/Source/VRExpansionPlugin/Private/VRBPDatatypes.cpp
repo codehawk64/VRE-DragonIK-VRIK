@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "VRBPDatatypes.h"
+#include "Chaos/ChaosEngineInterface.h"
 
 namespace VRDataTypeCVARs
 {
@@ -11,6 +12,15 @@ namespace VRDataTypeCVARs
 		TEXT("vrexp.RepHighPrecisionTransforms"),
 		RepHighPrecisionTransforms,
 		TEXT("When on, will rep Quantized transforms at full precision, WARNING use at own risk, if this isn't the same setting client & server then it will crash.\n")
+		TEXT("0: Disable, 1: Enable"),
+		ECVF_Default);
+
+	// Double buffering tracked devices will smooth out hitches
+	static int32 DoubleBufferReplicatedTrackedDevices = 0;
+	FAutoConsoleVariableRef CVarDoubleBufferReplicatedTrackedDevices(
+		TEXT("vr.DoubleBufferReplicatedTrackedDevices"),
+		DoubleBufferReplicatedTrackedDevices,
+		TEXT("When on, will double buffer the replicated transforms for tracked devices.\n")
 		TEXT("0: Disable, 1: Enable"),
 		ECVF_Default);
 }
@@ -102,6 +112,12 @@ void FBPEuroLowPassFilter::ResetSmoothingFilter()
 
 FVector FBPEuroLowPassFilter::RunFilterSmoothing(const FVector &InRawValue, const float &InDeltaTime)
 {
+	if (InDeltaTime <= 0.0f)
+	{
+		// Invalid delta time, return the in value
+		return InRawValue;
+	}
+
 	// Calculate the delta, if this is the first time then there is no delta
 	const FVector Delta = RawFilter.bFirstTime == true ? FVector::ZeroVector : (InRawValue - RawFilter.PreviousRaw) * 1.0f / InDeltaTime;
 
@@ -123,6 +139,11 @@ void FBPEuroLowPassFilterQuat::ResetSmoothingFilter()
 
 FQuat FBPEuroLowPassFilterQuat::RunFilterSmoothing(const FQuat& InRawValue, const float& InDeltaTime)
 {
+	if (InDeltaTime <= 0.0f)
+	{
+		// Invalid delta time, return the in value
+		return InRawValue;
+	}
 
 	FQuat NewInVal = InRawValue;
 	if (!RawFilter.bFirstTime)
@@ -162,6 +183,11 @@ void FBPEuroLowPassFilterTrans::ResetSmoothingFilter()
 
 FTransform FBPEuroLowPassFilterTrans::RunFilterSmoothing(const FTransform& InRawValue, const float& InDeltaTime)
 {
+	if (InDeltaTime <= 0.0f)
+	{
+		// Invalid delta time, return the in value
+		return InRawValue;
+	}
 
 	FTransform NewInVal = InRawValue;
 	if (!RawFilter.bFirstTime)

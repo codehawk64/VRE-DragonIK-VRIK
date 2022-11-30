@@ -3,14 +3,8 @@
 #include "CoreMinimal.h"
 #include "Engine/Engine.h"
 #include "VRGripScriptBase.h"
-#include "GameFramework/WorldSettings.h"
 #include "GripScripts/GS_Default.h"
 #include "GS_Melee.generated.h"
-
-#if PHYSICS_INTERFACE_PHYSX
-#include "PhysXPublic.h"
-#endif // WITH_PHYSX
-
 
 
 // The type of melee hit zone we are
@@ -152,10 +146,11 @@ public:
 		MinimumHitVelocity = 1000.f;
 		AcceptableForwardProductRange = 0.1f;
 		AcceptableForwardProductRangeForHits = 0.1f;
+		TargetComponent = nullptr;
 	}
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LodgeComponentInfo")
-	TWeakObjectPtr<UPrimitiveComponent> TargetComponent;
+	TObjectPtr<UPrimitiveComponent> TargetComponent;
 
 	FORCEINLINE bool operator==(const FName& Other) const
 	{
@@ -168,6 +163,7 @@ public:
 // Event thrown when we the melee weapon becomes lodged
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_SevenParams(FVROnMeleeShouldLodgeSignature, FBPLodgeComponentInfo, LogComponent, AActor *, OtherActor, UPrimitiveComponent *, OtherComp, ECollisionChannel, OtherCompCollisionChannel, FBPHitSurfaceProperties, HitSurfaceProperties, FVector, NormalImpulse, const FHitResult&, Hit);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_SevenParams(FVROnMeleeOnHit, FBPLodgeComponentInfo, LogComponent, AActor*, OtherActor, UPrimitiveComponent*, OtherComp, ECollisionChannel, OtherCompCollisionChannel, FBPHitSurfaceProperties, HitSurfaceProperties, FVector, NormalImpulse, const FHitResult&, Hit);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FVROnMeleeInvalidHitSignature, AActor*, OtherActor, UPrimitiveComponent*, OtherComp, FVector, NormalImpulse, const FHitResult&, Hit);
 
 /**
 * A Melee grip script that hands multi hand interactions and penetration notifications*
@@ -200,8 +196,13 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Melee|Lodging")
 		FVROnMeleeShouldLodgeSignature OnShouldLodgeInObject;
 
+	// Thrown if we hit something we can damage
 	UPROPERTY(BlueprintAssignable, Category = "Melee|Hit")
 		FVROnMeleeOnHit OnMeleeHit;
+
+	// Fired when a hit is invalid (hit something that isn't flagged for damage or stabbing or was below the damage or stab threshold)
+	UPROPERTY(BlueprintAssignable, Category = "Melee|Hit")
+		FVROnMeleeInvalidHitSignature OnMeleeInvalidHit;
 
 	// Always tick for penetration
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee|Lodging")
@@ -252,11 +253,6 @@ public:
 
 	FVector LastRelativePos;
 	FVector RelativeBetweenGripsCenterPos;
-
-	// If true then we won't bind to the objects mass updates, we don't expect thing to attach to us
-	// This is a perf savings when possible
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon Settings")
-		bool bSkipGripMassChecks;
 
 	// When true, will auto set the primary and secondary hands by the WeaponRootOrientationComponents X Axis distance.
 	// Smallest value along the X Axis will be considered the primary hand.

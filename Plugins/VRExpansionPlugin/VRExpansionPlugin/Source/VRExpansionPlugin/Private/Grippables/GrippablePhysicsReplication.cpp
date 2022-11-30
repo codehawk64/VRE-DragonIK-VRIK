@@ -4,12 +4,19 @@
 #include "UObject/ObjectMacros.h"
 #include "UObject/Interface.h"
 #include "DrawDebugHelpers.h"
-#if WITH_CHAOS
 #include "Chaos/ChaosMarshallingManager.h"
 #include "PhysicsProxy/SingleParticlePhysicsProxy.h"
 #include "PBDRigidsSolver.h"
 #include "Chaos/PBDRigidsEvolutionGBF.h"
-#endif
+#include "VRGlobalSettings.h"
+#include "PhysicsEngine/PhysicsSettings.h"
+//#include "Components/SkeletalMeshComponent.h"
+#include "Misc/ScopeRWLock.h"
+
+#include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerState.h"
+#include "Engine/Player.h"
+//#include "PhysicsInterfaceTypesCore.h"
 
 // I cannot dynamic cast without RTTI so I am using a static var as a declarative in case the user removed our custom replicator
 // We don't want our casts to cause issues.
@@ -18,14 +25,10 @@ namespace VRPhysicsReplicationStatics
 	static bool bHasVRPhysicsReplication = false;
 }
 
-#if WITH_CHAOS
 struct FAsyncPhysicsRepCallbackDataVR : public Chaos::FSimCallbackInput
 {
 	TArray<FAsyncPhysicsDesiredState> Buffer;
-	float LinearVelocityCoefficient;
-	float AngularVelocityCoefficient;
-	float PositionLerp;
-	float AngleLerp;
+	ErrorCorrectionData ErrorCorrection;
 
 	void Reset()
 	{
@@ -40,11 +43,9 @@ class FPhysicsReplicationAsyncCallbackVR final : public Chaos::TSimCallbackObjec
 		FPhysicsReplicationVR::ApplyAsyncDesiredStateVR(GetDeltaTime_Internal(), GetConsumerInput_Internal());
 	}
 };
-#endif
 
 FPhysicsReplicationVR::~FPhysicsReplicationVR()
 {
-#if WITH_CHAOS
 	if (AsyncCallbackServer)
 	{
 		if (auto* Solver = PhysSceneVR->GetSolver())
@@ -52,7 +53,6 @@ FPhysicsReplicationVR::~FPhysicsReplicationVR()
 			Solver->UnregisterAndFreeSimCallbackObject_External(AsyncCallbackServer);
 		}
 	}
-#endif
 }
 
 
@@ -72,26 +72,11 @@ FPhysicsReplicationVR::FPhysicsReplicationVR(FPhysScene* PhysScene) :
 	FPhysicsReplication(PhysScene)
 {
 	PhysSceneVR = PhysScene;
-#if WITH_CHAOS
 	CurAsyncDataVR = nullptr;
 	AsyncCallbackServer = nullptr;
-#endif
 	VRPhysicsReplicationStatics::bHasVRPhysicsReplication = true;
-
-#if PHYSICS_INTERFACE_PHYSX
-	const UVRGlobalSettings& VRSettings = *GetDefault<UVRGlobalSettings>();
-	if (VRSettings.MaxCCDPasses != 1)
-	{
-		if (PxScene * PScene = PhysScene->GetPxScene())
-		{
-			PScene->setCCDMaxPasses(VRSettings.MaxCCDPasses);
-		}
-	}
-
-#endif
 }
 
-#if WITH_CHAOS
 
 void FPhysicsReplicationVR::PrepareAsyncData_ExternalVR(const FRigidBodyErrorCorrection& ErrorCorrection)
 {
@@ -109,10 +94,10 @@ void FPhysicsReplicationVR::PrepareAsyncData_ExternalVR(const FRigidBodyErrorCor
 	const float AngularVelocityCoefficient = CVarAngLerp->GetFloat() >= 0.0f ? CVarAngLerp->GetFloat() : ErrorCorrection.AngularVelocityCoefficient;
 
 	CurAsyncDataVR = AsyncCallbackServer->GetProducerInputData_External();
-	CurAsyncDataVR->PositionLerp = PositionLerp;
-	CurAsyncDataVR->AngleLerp = AngleLerp;
-	CurAsyncDataVR->LinearVelocityCoefficient = LinearVelocityCoefficient;
-	CurAsyncDataVR->AngularVelocityCoefficient = AngularVelocityCoefficient;
+	CurAsyncDataVR->ErrorCorrection.PositionLerp = PositionLerp;
+	CurAsyncDataVR->ErrorCorrection.AngleLerp = AngleLerp;
+	CurAsyncDataVR->ErrorCorrection.LinearVelocityCoefficient = LinearVelocityCoefficient;
+	CurAsyncDataVR->ErrorCorrection.AngularVelocityCoefficient = AngularVelocityCoefficient;
 }
 
 void FPhysicsReplicationVR::ApplyAsyncDesiredStateVR(const float DeltaSeconds, const FAsyncPhysicsRepCallbackDataVR* AsyncData)
@@ -120,15 +105,23 @@ void FPhysicsReplicationVR::ApplyAsyncDesiredStateVR(const float DeltaSeconds, c
 	using namespace Chaos;
 	if (AsyncData)
 	{
-		const float LinearVelocityCoefficient = AsyncData->LinearVelocityCoefficient;
-		const float AngularVelocityCoefficient = AsyncData->AngularVelocityCoefficient;
-		const float PositionLerp = AsyncData->PositionLerp;
-		const float AngleLerp = AsyncData->AngleLerp;
-
 		for (const FAsyncPhysicsDesiredState& State : AsyncData->Buffer)
 		{
+			float LinearVelocityCoefficient = AsyncData->ErrorCorrection.LinearVelocityCoefficient;
+			float AngularVelocityCoefficient = AsyncData->ErrorCorrection.AngularVelocityCoefficient;
+			float PositionLerp = AsyncData->ErrorCorrection.PositionLerp;
+			float AngleLerp = AsyncData->ErrorCorrection.AngleLerp;
+			if (State.ErrorCorrection.IsSet())
+			{
+				ErrorCorrectionData ECData = State.ErrorCorrection.GetValue();
+				LinearVelocityCoefficient = ECData.LinearVelocityCoefficient;
+				AngularVelocityCoefficient = ECData.AngularVelocityCoefficient;
+				PositionLerp = ECData.PositionLerp;
+				AngleLerp = ECData.AngleLerp;
+			}
+
 			//Proxy should exist because we are using latest and any pending deletes would have been enqueued after
-			FSingleParticlePhysicsProxy* Proxy = State.Proxy;
+			Chaos::FSingleParticlePhysicsProxy* Proxy = State.Proxy;
 			auto* Handle = Proxy->GetPhysicsThreadAPI();
 
 
@@ -162,19 +155,19 @@ void FPhysicsReplicationVR::ApplyAsyncDesiredStateVR(const float DeltaSeconds, c
 				Handle->SetV(NewLinVel);
 				Handle->SetW(FMath::DegreesToRadians(NewAngVel));
 
-				EObjectStateType ObjectStateType = State.ObjectState;
-				static const auto CVarApplyAsyncSleepState = IConsoleManager::Get().FindConsoleVariable(TEXT("p.ApplyAsyncSleepState"));
-				if ((CVarApplyAsyncSleepState->GetInt() != 0) && State.bShouldSleep)
+				if (State.bShouldSleep)
 				{
-					ObjectStateType = EObjectStateType::Sleeping;
+					// don't allow kinematic to sleeping transition
+					if (Handle->ObjectState() != EObjectStateType::Kinematic)
+					{
+						auto* Solver = Proxy->GetSolver<FPBDRigidsSolver>();
+						Solver->GetEvolution()->SetParticleObjectState(Proxy->GetHandle_LowLevel()->CastToRigidParticle(), EObjectStateType::Sleeping);	//todo: move object state into physics thread api
+					}
 				}
-				auto* Solver = Proxy->GetSolver<FPBDRigidsSolver>();
-				Solver->GetEvolution()->SetParticleObjectState(Proxy->GetHandle_LowLevel()->CastToRigidParticle(), ObjectStateType);	//todo: move object state into physics thread api
 			}
 		}
 	}
 }
-#endif
 
 
 bool FPhysicsReplicationVR::IsInitialized()
@@ -182,7 +175,63 @@ bool FPhysicsReplicationVR::IsInitialized()
 	return VRPhysicsReplicationStatics::bHasVRPhysicsReplication;
 }
 
-bool FPhysicsReplicationVR::ApplyRigidBodyState(float DeltaSeconds, FBodyInstance* BI, FReplicatedPhysicsTarget& PhysicsTarget, const FRigidBodyErrorCorrection& ErrorCorrection, const float PingSecondsOneWay)
+
+bool FPhysicsReplicationVR::ApplyRigidBodyState(float DeltaSeconds, FBodyInstance* BI, FReplicatedPhysicsTarget& PhysicsTarget, const FRigidBodyErrorCorrection& ErrorCorrection, const float InPingSecondsOneWay, int32 LocalFrame, int32 NumPredictedFrames)
+{
+
+	// Skip all of the custom logic if we aren't the server
+	if (const UWorld* World = GetOwningWorld())
+	{
+		if (World->GetNetMode() == ENetMode::NM_Client)
+		{
+			return FPhysicsReplication::ApplyRigidBodyState(DeltaSeconds, BI, PhysicsTarget, ErrorCorrection, InPingSecondsOneWay, LocalFrame, NumPredictedFrames);
+		}
+	}
+
+	if (ShouldSkipPhysicsReplication())
+	{
+		return false;
+	}
+
+	if (!BI->IsInstanceSimulatingPhysics())
+	{
+		return false;
+	}
+
+	// LocalFrame the local frame number we should use to access past state in the rewind data
+	// NumPredictedFrames is how many frames (steps) ahead "now" is for the client compared to the latest data we've received from the server (use this to determine accurately how far ahead this object should extrapolate from its "physics target"
+
+	Chaos::FPhysicsSolver* Solver = PhysSceneVR->GetSolver();
+	Chaos::FRewindData* RewindData = Solver->GetRewindData();
+
+	if (RewindData && LocalFrame > RewindData->GetEarliestFrame_Internal() && LocalFrame < RewindData->CurrentFrame())
+	{
+		auto Proxy = BI->GetPhysicsActorHandle();
+		const auto P = RewindData->GetPastStateAtFrame(*Proxy->GetHandle_LowLevel(), LocalFrame);
+
+#if 0
+		// Debugging/test: compare and print out if locations differ
+		if (FVector::DistSquared(PhysicsTarget.TargetState.Position, P.X()) > 1.f)
+		{
+			const int32 EarliestFrame = RewindData->GetEarliestFrame_Internal();
+			const int32 CurrentFrame = RewindData->CurrentFrame();
+
+			UE_LOG(LogTemp, Warning, TEXT(""));
+			UE_LOG(LogTemp, Warning, TEXT("Location differs"));
+			UE_LOG(LogTemp, Warning, TEXT("   Replicated: %s"), *PhysicsTarget.TargetState.Position.ToString());
+			UE_LOG(LogTemp, Warning, TEXT("   Historic: %s"), *P.X().ToString());
+		}
+#endif
+	}
+
+	// Call into the old ApplyRigidBodyState function for now,
+	// "new leash mode" should replace this.
+	// Note that old ApplyRigidBodyState is overridden in other projects, so consider backwards compat path
+	float PingSecondsOneWay = RewindData == nullptr ? InPingSecondsOneWay : (Solver->GetLastDt() * NumPredictedFrames) * 0.5f;
+	return ApplyRigidBodyState(DeltaSeconds, BI, PhysicsTarget, ErrorCorrection, PingSecondsOneWay);
+}
+
+bool FPhysicsReplicationVR::ApplyRigidBodyState(float DeltaSeconds, FBodyInstance* BI, FReplicatedPhysicsTarget& PhysicsTarget, const FRigidBodyErrorCorrection& ErrorCorrection, const float PingSecondsOneWay, bool* bDidHardSnap)
 {
 	// Skip all of the custom logic if we aren't the server
 	if (const UWorld* World = GetOwningWorld())
@@ -244,12 +293,12 @@ bool FPhysicsReplicationVR::ApplyRigidBodyState(float DeltaSeconds, FBodyInstanc
 		UE_LOG(LogPhysics, Warning, TEXT("Physics replicating on non-simulated body. (%s)"), *BI->GetBodyDebugName());
 		return bRestoredState;
 	}
-	else if (NewQuatSizeSqr < KINDA_SMALL_NUMBER)
+	else if (NewQuatSizeSqr < UE_KINDA_SMALL_NUMBER)
 	{
 		UE_LOG(LogPhysics, Warning, TEXT("Invalid zero quaternion set for body. (%s)"), *BI->GetBodyDebugName());
 		return bRestoredState;
 	}
-	else if (FMath::Abs(NewQuatSizeSqr - 1.f) > KINDA_SMALL_NUMBER)
+	else if (FMath::Abs(NewQuatSizeSqr - 1.f) > UE_KINDA_SMALL_NUMBER)
 	{
 		UE_LOG(LogPhysics, Warning, TEXT("Quaternion (%f %f %f %f) with non-unit magnitude detected. (%s)"),
 			NewState.Quaternion.X, NewState.Quaternion.Y, NewState.Quaternion.Z, NewState.Quaternion.W, *BI->GetBodyDebugName());
@@ -395,6 +444,26 @@ bool FPhysicsReplicationVR::ApplyRigidBodyState(float DeltaSeconds, FBodyInstanc
 
 		if (bHardSnap)
 		{
+#if !UE_BUILD_SHIPPING
+			if (PhysicsReplicationCVars::LogPhysicsReplicationHardSnaps && GetOwningWorld())
+			{
+				UE_LOG(LogTemp, Warning, TEXT("Simulated HARD SNAP - \nCurrent Pos - %s, Target Pos - %s\n CurrentState.LinVel - %s, New Lin Vel - %s\nTarget Extrapolation Delta - %s, Is Replay? - %d, Is Asleep - %d, Prev Progress - %f, Prev Similarity - %f"),
+					*CurrentState.Position.ToString(), *TargetPos.ToString(), *CurrentState.LinVel.ToString(), *NewState.LinVel.ToString(),
+					*ExtrapolationDeltaPos.ToString(), GetOwningWorld()->IsPlayingReplay(), !BI->IsInstanceAwake(), PrevProgress, PrevSimilarity);
+				if (bDidHardSnap)
+				{
+					*bDidHardSnap = true;
+				}
+				if (LinDiffSize > MaxLinearHardSnapDistance)
+				{
+					UE_LOG(LogTemp, Warning, TEXT("Hard snap due to linear difference error"));
+				}
+				else
+				{
+					UE_LOG(LogTemp, Warning, TEXT("Hard snap due to accumulated error"))
+				}
+			}
+#endif
 			// Too much error so just snap state here and be done with it
 			PhysicsTarget.AccumulatedErrorSeconds = 0.0f;
 			bRestoredState = true;
@@ -407,9 +476,7 @@ bool FPhysicsReplicationVR::ApplyRigidBodyState(float DeltaSeconds, FBodyInstanc
 		else
 		{
 			// Small enough error to interpolate
-#if WITH_CHAOS
 			if (AsyncCallbackServer == nullptr)	//sync case
-#endif
 			{
 				const FVector NewLinVel = FVector(NewState.LinVel) + (LinDiff * LinearVelocityCoefficient * DeltaSeconds);
 				const FVector NewAngVel = FVector(NewState.AngVel) + (AngDiffAxis * AngDiff * AngularVelocityCoefficient * DeltaSeconds);
@@ -421,7 +488,6 @@ bool FPhysicsReplicationVR::ApplyRigidBodyState(float DeltaSeconds, FBodyInstanc
 				BI->SetLinearVelocity(NewLinVel, false);
 				BI->SetAngularVelocityInRadians(FMath::DegreesToRadians(NewAngVel), false);
 			}
-#if WITH_CHAOS
 			else
 			{
 				//If async is used, enqueue for callback
@@ -429,12 +495,11 @@ bool FPhysicsReplicationVR::ApplyRigidBodyState(float DeltaSeconds, FBodyInstanc
 				AsyncDesiredState.WorldTM = IdealWorldTM;
 				AsyncDesiredState.LinearVelocity = NewState.LinVel;
 				AsyncDesiredState.AngularVelocity = NewState.AngVel;
-				AsyncDesiredState.Proxy = static_cast<FSingleParticlePhysicsProxy*>(BI->GetPhysicsActorHandle());
-				AsyncDesiredState.ObjectState = AsyncDesiredState.Proxy->GetGameThreadAPI().ObjectState();
+				AsyncDesiredState.Proxy = static_cast<Chaos::FSingleParticlePhysicsProxy*>(BI->GetPhysicsActorHandle());
+				AsyncDesiredState.ErrorCorrection = { ErrorCorrection.LinearVelocityCoefficient, ErrorCorrection.AngularVelocityCoefficient, ErrorCorrection.PositionLerp, ErrorCorrection.AngleLerp };
 				AsyncDesiredState.bShouldSleep = bShouldSleep;
 				CurAsyncDataVR->Buffer.Add(AsyncDesiredState);
 			}
-#endif
 		}
 
 		// Should we show the async part?
@@ -462,7 +527,6 @@ bool FPhysicsReplicationVR::ApplyRigidBodyState(float DeltaSeconds, FBodyInstanc
 
 	/////// SLEEP UPDATE ///////
 
-#if WITH_CHAOS
 	if (bShouldSleep)
 	{
 		// In the async case, we apply sleep state in ApplyAsyncDesiredState
@@ -471,7 +535,6 @@ bool FPhysicsReplicationVR::ApplyRigidBodyState(float DeltaSeconds, FBodyInstanc
 			BI->PutInstanceToSleep();
 		}
 	}
-#endif
 
 	PhysicsTarget.PrevPosTarget = TargetPos;
 	PhysicsTarget.PrevPos = FVector(CurrentState.Position);
@@ -490,7 +553,6 @@ void FPhysicsReplicationVR::OnTick(float DeltaSeconds, TMap<TWeakObjectPtr<UPrim
 		}
 	}
 
-#if WITH_CHAOS
 	using namespace Chaos;
 	if (AsyncCallbackServer == nullptr)
 	{
@@ -499,17 +561,39 @@ void FPhysicsReplicationVR::OnTick(float DeltaSeconds, TMap<TWeakObjectPtr<UPrim
 			AsyncCallbackServer = Solver->CreateAndRegisterSimCallbackObject_External<FPhysicsReplicationAsyncCallbackVR>();
 		}
 	}
-#endif
+
+	using namespace Chaos;
+
+
+	int32 LocalFrameOffset = 0;		// LocalFrame = ServerFrame + LocalFrameOffset;
+	int32 NumPredictedFrames = 0;	// How many frames "ahead" of the server we are predicting. That is, how many frames are in flight between us and the server.
+
+	if (UWorld* World = GetOwningWorld())
+	{
+		if (World->GetNetMode() == NM_Client)
+		{
+			if (APlayerController* PlayerController = World->GetFirstPlayerController())
+			{
+				Chaos::FPhysicsSolver* Solver = PhysSceneVR->GetSolver();
+				check(Solver);
+
+				static IConsoleVariable* EnableNetworkPhysicsCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("np2.EnableNetworkPhysicsPrediction"));
+				if (EnableNetworkPhysicsCVar && EnableNetworkPhysicsCVar->GetInt() == 1)
+				{
+					LocalFrameOffset = PlayerController->GetLocalToServerAsyncPhysicsTickOffset();
+				}
+				//TODO: as we send physics updates down we need to record latest seen
+				//NumPredictedFrames = Solver->GetCurrentFrame() - ClientFrameInfo.LastProcessedInputFrame;
+			}
+		}
+	}
 
 	const FRigidBodyErrorCorrection& PhysicErrorCorrection = UPhysicsSettings::Get()->PhysicErrorCorrection;
 
-#if WITH_CHAOS
-	using namespace Chaos;
 	if (AsyncCallbackServer)
 	{
 		PrepareAsyncData_ExternalVR(PhysicErrorCorrection);
 	}
-#endif
 
 	// Get the ping between this PC & the server
 	const float LocalPing = 0.0f;//GetLocalPing();
@@ -581,7 +665,8 @@ void FPhysicsReplicationVR::OnTick(float DeltaSeconds, TMap<TWeakObjectPtr<UPrim
 
 							if (UpdatedState.Flags & ERigidBodyFlags::NeedsUpdate)
 							{
-								const bool bRestoredState = ApplyRigidBodyState(DeltaSeconds, BI, PhysicsTarget, PhysicErrorCorrection, PingSecondsOneWay);
+								const int32 LocalFrame = PhysicsTarget.ServerFrame + LocalFrameOffset;
+								const bool bRestoredState = ApplyRigidBodyState(DeltaSeconds, BI, PhysicsTarget, PhysicErrorCorrection, PingSecondsOneWay, LocalFrame, NumPredictedFrames);
 
 								// Need to update the component to match new position.
 								static const auto CVarSkipSkeletalRepOptimization = IConsoleManager::Get().FindConsoleVariable(TEXT("p.SkipSkeletalRepOptimization"));
@@ -608,88 +693,11 @@ void FPhysicsReplicationVR::OnTick(float DeltaSeconds, TMap<TWeakObjectPtr<UPrim
 			}
 		}
 	}
-#if WITH_CHAOS
 	CurAsyncDataVR = nullptr;
-#endif
 
 	//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("Phys Rep Tick!"));
 	//FPhysicsReplication::OnTick(DeltaSeconds, ComponentsToTargets);
 }
-
-#if PHYSICS_INTERFACE_PHYSX
-void FContactModifyCallbackVR::onContactModify(PxContactModifyPair* const pairs, PxU32 count)
-{
-	for (uint32 PairIdx = 0; PairIdx < count; PairIdx++)
-	{
-		const PxActor* PActor0 = pairs[PairIdx].actor[0];
-		const PxActor* PActor1 = pairs[PairIdx].actor[1];
-		check(PActor0 && PActor1);
-
-		const PxRigidBody* PRigidBody0 = PActor0->is<PxRigidBody>();
-		const PxRigidBody* PRigidBody1 = PActor1->is<PxRigidBody>();
-
-		//physx::PxRigidActor* SyncActor;
-
-		const FBodyInstance* BodyInst0 = FPhysxUserData::Get<FBodyInstance>(PActor0->userData);
-		const FBodyInstance* BodyInst1 = FPhysxUserData::Get<FBodyInstance>(PActor1->userData);
-		if (BodyInst0 == nullptr || BodyInst1 == nullptr)
-		{
-			continue;
-		}
-
-		if (BodyInst0->bContactModification && BodyInst1->bContactModification)
-		{
-			FRWScopeLock(RWAccessLock, FRWScopeLockType::SLT_ReadOnly);
-
-			const FContactModBodyInstancePair* prop = ContactsToIgnore.FindByPredicate([&](const FContactModBodyInstancePair& it) {return (it.Actor1.SyncActor == PRigidBody0 && it.Actor2.SyncActor == PRigidBody1) || (it.Actor2.SyncActor == PRigidBody0 && it.Actor1.SyncActor == PRigidBody1);  });
-			if (prop)
-			{
-				for (uint32 ContactPt = 0; ContactPt < pairs[PairIdx].contacts.size(); ContactPt++)
-				{
-					pairs[PairIdx].contacts.ignore(ContactPt);
-				}
-			}
-		}
-	}
-}
-
-void FCCDContactModifyCallbackVR::onCCDContactModify(PxContactModifyPair* const pairs, PxU32 count)
-{
-	for (uint32 PairIdx = 0; PairIdx < count; PairIdx++)
-	{
-		const PxActor* PActor0 = pairs[PairIdx].actor[0];
-		const PxActor* PActor1 = pairs[PairIdx].actor[1];
-		check(PActor0 && PActor1);
-
-		const PxRigidBody* PRigidBody0 = PActor0->is<PxRigidBody>();
-		const PxRigidBody* PRigidBody1 = PActor1->is<PxRigidBody>();
-
-		//physx::PxRigidActor* SyncActor;
-
-		const FBodyInstance* BodyInst0 = FPhysxUserData::Get<FBodyInstance>(PActor0->userData);
-		const FBodyInstance* BodyInst1 = FPhysxUserData::Get<FBodyInstance>(PActor1->userData);
-
-		if (BodyInst0 == nullptr || BodyInst1 == nullptr)
-		{
-			continue;
-		}
-
-		if (BodyInst0->bContactModification && BodyInst1->bContactModification)
-		{
-			FRWScopeLock(RWAccessLock, FRWScopeLockType::SLT_ReadOnly);
-
-			const FContactModBodyInstancePair* prop = ContactsToIgnore.FindByPredicate([&](const FContactModBodyInstancePair& it) {return (it.Actor1.SyncActor == PRigidBody0 && it.Actor2.SyncActor == PRigidBody1) || (it.Actor2.SyncActor == PRigidBody0 && it.Actor1.SyncActor == PRigidBody1);  });
-			if (prop)
-			{
-				for (uint32 ContactPt = 0; ContactPt < pairs[PairIdx].contacts.size(); ContactPt++)
-				{
-					pairs[PairIdx].contacts.ignore(ContactPt);
-				}
-			}
-		}
-	}
-}
-#endif
 
 FRepMovementVR::FRepMovementVR() : FRepMovement()
 {

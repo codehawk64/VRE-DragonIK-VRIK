@@ -6,13 +6,9 @@
 #include "PhysicsPublic.h"
 #include "DrawDebugHelpers.h"
 #include "IHeadMountedDisplay.h"
+#include "IXRTrackingSystem.h"
 #include "VRCharacter.h"
 #include "Algo/Copy.h"
-
-#if PHYSICS_INTERFACE_PHYSX
-//#include "PhysXSupport.h"
-#endif // WITH_PHYSX
-
 
 #include "Components/PrimitiveComponent.h"
 
@@ -154,7 +150,7 @@ struct FPredicateOverlapHasSameActor
 	bool operator() (const FOverlapInfo& Info)
 	{
 		// MyOwnerPtr is always valid, so we don't need the IsValid() checks in the WeakObjectPtr comparison operator.
-		return MyOwnerPtr.HasSameIndexAndSerialNumber(Info.OverlapInfo.Actor);
+		return MyOwnerPtr.HasSameIndexAndSerialNumber(Info.OverlapInfo.HitObjectHandle.FetchActor());
 	}
 
 private:
@@ -172,41 +168,12 @@ struct FPredicateOverlapHasDifferentActor
 	bool operator() (const FOverlapInfo& Info)
 	{
 		// MyOwnerPtr is always valid, so we don't need the IsValid() checks in the WeakObjectPtr comparison operator.
-		return !MyOwnerPtr.HasSameIndexAndSerialNumber(Info.OverlapInfo.Actor);
+		return !MyOwnerPtr.HasSameIndexAndSerialNumber(Info.OverlapInfo.HitObjectHandle.FetchActor());
 	}
 
 private:
 	const TWeakObjectPtr<const AActor> MyOwnerPtr;
 };
-
-/*
-* Predicate for comparing FOverlapInfos when exact weak object pointer index/serial numbers should match, assuming one is not null and not invalid.
-* Compare to operator== for WeakObjectPtr which does both HasSameIndexAndSerialNumber *and* IsValid() checks on both pointers.
-*/
-struct FFastOverlapInfoCompare
-{
-	FFastOverlapInfoCompare(const FOverlapInfo& BaseInfo)
-		: MyBaseInfo(BaseInfo)
-	{
-	}
-
-	bool operator() (const FOverlapInfo& Info)
-	{
-		return MyBaseInfo.OverlapInfo.Component.HasSameIndexAndSerialNumber(Info.OverlapInfo.Component)
-			&& MyBaseInfo.GetBodyIndex() == Info.GetBodyIndex();
-	}
-
-	bool operator() (const FOverlapInfo* Info)
-	{
-		return MyBaseInfo.OverlapInfo.Component.HasSameIndexAndSerialNumber(Info->OverlapInfo.Component)
-			&& MyBaseInfo.GetBodyIndex() == Info->GetBodyIndex();
-	}
-
-private:
-	const FOverlapInfo& MyBaseInfo;
-
-};
-
 
 // Helper for finding the index of an FOverlapInfo in an Array using the FFastOverlapInfoCompare predicate, knowing that at least one overlap is valid (non-null).
 template<class AllocatorType>
@@ -259,7 +226,7 @@ static bool ShouldIgnoreHitResult(const UWorld* InWorld, bool bAllowSimulatingCo
 		if ((MoveFlags & MOVECOMP_IgnoreBases) && MovingActor)	//we let overlap components go through because their overlap is still needed and will cause beginOverlap/endOverlap events
 		{
 			// ignore if there's a base relationship between moving actor and hit actor
-			AActor const* const HitActor = TestHit.GetActor();
+			AActor const* const HitActor = TestHit.HitObjectHandle.FetchActor();
 			if (HitActor)
 			{
 				if (MovingActor->IsBasedOnActor(HitActor) || HitActor->IsBasedOnActor(MovingActor))
@@ -290,7 +257,7 @@ static bool ShouldIgnoreHitResult(const UWorld* InWorld, bool bAllowSimulatingCo
 			{
 				UE_LOG(LogVRRootComponent, Log, TEXT("Overlapping %s Dir %s Dot %f Normal %s Depth %f"), *GetNameSafe(TestHit.Component.Get()), *MovementDir.ToString(), MoveDot, *TestHit.ImpactNormal.ToString(), TestHit.PenetrationDepth);
 				DrawDebugDirectionalArrow(InWorld, TestHit.TraceStart, TestHit.TraceStart + 30.f * TestHit.ImpactNormal, 5.f, bMovingOut ? FColor(64, 128, 255) : FColor(255, 64, 64), true, 4.f);
-				if (TestHit.PenetrationDepth > KINDA_SMALL_NUMBER)
+				if (TestHit.PenetrationDepth > UE_KINDA_SMALL_NUMBER)
 				{
 					DrawDebugDirectionalArrow(InWorld, TestHit.TraceStart, TestHit.TraceStart + TestHit.PenetrationDepth * TestHit.Normal, 5.f, FColor(64, 255, 64), true, 4.f);
 				}
@@ -585,6 +552,7 @@ void UVRRootComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, 
 				{
 					owningVRChar->VRReplicatedCamera->ApplyTrackingParameters(curCameraLoc);
 				}
+
 				curCameraRot = curRot.Rotator();
 			}
 		}
@@ -839,7 +807,7 @@ void UVRRootComponent::OnUpdateTransform(EUpdateTransformFlags UpdateTransformFl
 		{
 			//If we update transform of welded bodies directly (i.e. on the actual component) we need to update the shape transforms of the parent.
 			//If the parent is updated, any welded shapes are automatically updated so we don't need to do this physx update.
-			//If the parent is updated and we are NOT welded, the child still needs to update physx
+			//If the parent is updated and we are NOT welded, the child still needs to update physics
 			const bool bTransformSetDirectly = !(UpdateTransformFlags & EUpdateTransformFlags::PropagateFromParent);
 			if (bTransformSetDirectly || !IsWelded())
 			{
@@ -866,47 +834,7 @@ void UVRRootComponent::GetNavigationData(FNavigationRelevantData& Data) const
 {
 	if (bDynamicObstacle)
 	{
-		//Data.Modifiers.CreateAreaModifiers(this, AreaClass);
-		UBodySetup* BodySetup = ((UPrimitiveComponent*)this)->GetBodySetup();
-		if (BodySetup == nullptr)
-		{
-			return;
-		}
-
-		for (int32 Idx = 0; Idx < BodySetup->AggGeom.BoxElems.Num(); Idx++)
-		{
-			const FKBoxElem& BoxElem = BodySetup->AggGeom.BoxElems[Idx];
-			const FBox BoxSize = BoxElem.CalcAABB(FTransform::Identity, 1.0f);
-
-			FAreaNavModifier AreaMod(BoxSize, OffsetComponentToWorld, AreaClass);
-			Data.Modifiers.Add(AreaMod);
-		}
-
-		for (int32 Idx = 0; Idx < BodySetup->AggGeom.SphylElems.Num(); Idx++)
-		{
-			const FKSphylElem& SphylElem = BodySetup->AggGeom.SphylElems[Idx];
-			const FTransform AreaOffset(FVector(0, 0, -SphylElem.Length));
-
-			FAreaNavModifier AreaMod(SphylElem.Radius, SphylElem.Length * 2.0f, AreaOffset *  OffsetComponentToWorld, AreaClass);
-			Data.Modifiers.Add(AreaMod);
-		}
-
-		for (int32 Idx = 0; Idx < BodySetup->AggGeom.ConvexElems.Num(); Idx++)
-		{
-			const FKConvexElem& ConvexElem = BodySetup->AggGeom.ConvexElems[Idx];
-
-			FAreaNavModifier AreaMod(ConvexElem.VertexData, 0, ConvexElem.VertexData.Num(), ENavigationCoordSystem::Unreal, OffsetComponentToWorld, AreaClass);
-			Data.Modifiers.Add(AreaMod);
-		}
-
-		for (int32 Idx = 0; Idx < BodySetup->AggGeom.SphereElems.Num(); Idx++)
-		{
-			const FKSphereElem& SphereElem = BodySetup->AggGeom.SphereElems[Idx];
-			const FTransform AreaOffset(FVector(0, 0, -SphereElem.Radius));
-
-			FAreaNavModifier AreaMod(SphereElem.Radius, SphereElem.Radius * 2.0f, AreaOffset *  OffsetComponentToWorld, AreaClass);
-			Data.Modifiers.Add(AreaMod);
-		}
+		Data.Modifiers.CreateAreaModifiers(this, GetDesiredAreaClass());
 	}
 }
 
@@ -959,7 +887,7 @@ bool UVRRootComponent::MoveComponentImpl(const FVector& Delta, const FQuat& NewR
 	//CSV_SCOPED_TIMING_STAT(PrimitiveComponent, MoveComponentTime);
 
 	// static things can move before they are registered (e.g. immediately after streaming), but not after.
-	if (IsPendingKill() || (this->Mobility == EComponentMobility::Static && IsRegistered()))//|| CheckStaticMobilityAndWarn(PrimitiveComponentStatics::MobilityWarnText))
+	if (!IsValid(this) || (this->Mobility == EComponentMobility::Static && IsRegistered()))//|| CheckStaticMobilityAndWarn(PrimitiveComponentStatics::MobilityWarnText))
 	{
 		if (OutHit)
 		{
@@ -990,8 +918,8 @@ bool UVRRootComponent::MoveComponentImpl(const FVector& Delta, const FQuat& NewR
 //	float DeltaSizeSq = Delta.SizeSquared();
 	const FQuat InitialRotationQuat = GetComponentTransform().GetRotation();//ComponentToWorld.GetRotation();
 
-	// ComponentSweepMulti does nothing if moving < KINDA_SMALL_NUMBER in distance, so it's important to not try to sweep distances smaller than that. 
-	const float MinMovementDistSq = (bSweep ? FMath::Square(4.f*KINDA_SMALL_NUMBER) : 0.f);
+	// ComponentSweepMulti does nothing if moving < UE_KINDA_SMALL_NUMBER in distance, so it's important to not try to sweep distances smaller than that. 
+	const float MinMovementDistSq = (bSweep ? FMath::Square(4.f*UE_KINDA_SMALL_NUMBER) : 0.f);
 	if (DeltaSizeSq <= MinMovementDistSq)
 	{
 		// Skip if no vector or rotation.
@@ -1035,26 +963,25 @@ bool UVRRootComponent::MoveComponentImpl(const FVector& Delta, const FQuat& NewR
 		FVector NewLocation = OrigLocation;//TraceStart;
 		// Perform movement collision checking if needed for this actor.
 		const bool bCollisionEnabled = IsQueryCollisionEnabled();
-		if (bCollisionEnabled && (DeltaSizeSq > 0.f))
+		UWorld* const MyWorld = GetWorld();
+		if (MyWorld && bCollisionEnabled && (DeltaSizeSq > 0.f))
 		{
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-			if (!IsRegistered())
+			if (!IsRegistered() && !MyWorld->bIsTearingDown)
 			{
 				if (Actor)
 				{
-					ensureMsgf(IsRegistered(), TEXT("%s MovedComponent %s not initialized deleteme %d"),*Actor->GetName(), *GetName(), Actor->IsPendingKill());
+					ensureMsgf(IsRegistered(), TEXT("%s MovedComponent %s not registered during sweep (IsValid %d)"), *Actor->GetName(), *GetName(), IsValid(Actor));
 				}
 				else
 				{ //-V523
-					ensureMsgf(IsRegistered(), TEXT("MovedComponent %s not initialized"), *GetFullName());
+					ensureMsgf(IsRegistered(), TEXT("Non-actor MovedComponent %s not registered during sweep"), *GetFullName());
 				}
 			}
 #endif
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST) && PERF_MOVECOMPONENT_STATS
 			MoveTimer.bDidLineCheck = true;
 #endif 
-			UWorld* const MyWorld = GetWorld();
-
 			static const FName TraceTagName = TEXT("MoveComponent");
 			const bool bForceGatherOverlaps = !ShouldCheckOverlapFlagToQueueOverlaps(*this);		
 			FComponentQueryParams Params(/*PrimitiveComponentStatics::MoveComponentName*//*"MoveComponent"*/SCENE_QUERY_STAT(MoveComponent), Actor);
@@ -1080,7 +1007,7 @@ bool UVRRootComponent::MoveComponentImpl(const FVector& Delta, const FQuat& NewR
 			if (bHadBlockingHit || (GetGenerateOverlapEvents() || bForceGatherOverlaps))
 			{
 				int32 BlockingHitIndex = INDEX_NONE;
-				float BlockingHitNormalDotDelta = BIG_NUMBER;
+				float BlockingHitNormalDotDelta = UE_BIG_NUMBER;
 				for (int32 HitIdx = 0; HitIdx < Hits.Num(); HitIdx++)
 				{
 					const FHitResult& TestHit = Hits[HitIdx];
@@ -1113,7 +1040,7 @@ bool UVRRootComponent::MoveComponentImpl(const FVector& Delta, const FQuat& NewR
 						UPrimitiveComponent* OverlapComponent = TestHit.Component.Get();
 						if (OverlapComponent && (OverlapComponent->GetGenerateOverlapEvents() || bForceGatherOverlaps))
 						{
-							if (!ShouldIgnoreOverlapResult(MyWorld, Actor, *this, TestHit.GetActor(), *OverlapComponent,!bForceGatherOverlaps))
+							if (!ShouldIgnoreOverlapResult(MyWorld, Actor, *this, TestHit.HitObjectHandle.FetchActor(), *OverlapComponent,!bForceGatherOverlaps))
 							{
 								// don't process touch events after initial blocking hits
 								if (BlockingHitIndex >= 0 && TestHit.Time > Hits[BlockingHitIndex].Time)
@@ -1232,7 +1159,7 @@ bool UVRRootComponent::MoveComponentImpl(const FVector& Delta, const FQuat& NewR
 
 	// Handle blocking hit notifications. Avoid if pending kill (which could happen after overlaps).
 	const bool bAllowHitDispatch = !BlockingHit.bStartPenetrating || !(MoveFlags & MOVECOMP_DisableBlockingOverlapDispatch);
-	if (BlockingHit.bBlockingHit && bAllowHitDispatch && !IsPendingKill())
+	if (BlockingHit.bBlockingHit && bAllowHitDispatch && IsValid(this))
 	{
 		check(bFilledHitResult);
 		if (IsDeferringMovementUpdates())
@@ -1323,7 +1250,7 @@ bool UVRRootComponent::UpdateOverlapsImpl(const TOverlapArrayView* NewPendingOve
 			TInlineOverlapPointerArray NewOverlappingComponentPtrs;
 
 			// If pending kill, we should not generate any new overlaps. Also not if overlaps were just disabled during BeginComponentOverlap.
-			if (!IsPendingKill() && GetGenerateOverlapEvents())
+			if (IsValid(this) && GetGenerateOverlapEvents())
 			{
 				// 4.17 converted to auto cvar
 				static const auto CVarAllowCachedOverlaps = IConsoleManager::Get().FindConsoleVariable(TEXT("p.AllowCachedOverlaps"));
@@ -1365,7 +1292,7 @@ bool UVRRootComponent::UpdateOverlapsImpl(const TOverlapArrayView* NewPendingOve
 						if (HitComp && (HitComp != this) && HitComp->GetGenerateOverlapEvents())
 						{
 							const bool bCheckOverlapFlags = false; // Already checked above
-							if (!ShouldIgnoreOverlapResult(MyWorld, MyActor, *this, Result.GetActor(), *HitComp, bCheckOverlapFlags))
+							if (!ShouldIgnoreOverlapResult(MyWorld, MyActor, *this, Result.OverlapObjectHandle.FetchActor(), *HitComp, bCheckOverlapFlags))
 							{
 								OverlapMultiResult.Emplace(HitComp, Result.ItemIndex);		// don't need to add unique unless the overlap check can return dupes
 							}
@@ -1420,7 +1347,7 @@ bool UVRRootComponent::UpdateOverlapsImpl(const TOverlapArrayView* NewPendingOve
 					{
 						OldOverlappingComponents[i] = *(OldOverlappingComponentPtrs[i]);
 					}
-
+					
 					// OldOverlappingComponents now contains only previous overlaps that are confirmed to no longer be valid.
 					for (const FOverlapInfo& OtherOverlap : OldOverlappingComponents)
 					{
@@ -1444,7 +1371,7 @@ bool UVRRootComponent::UpdateOverlapsImpl(const TOverlapArrayView* NewPendingOve
 
 			// Ensure these arrays are still in scope, because we kept pointers to them in NewOverlappingComponentPtrs.
 			static_assert(sizeof(OverlapMultiResult) != 0, "Variable must be in this scope");
-			static_assert(sizeof(OverlapsAtEndLocationPtr) != 0, "Variable must be in this scope");
+			static_assert(sizeof(*OverlapsAtEndLocation) != 0, "Variable must be in this scope");
 
 			// NewOverlappingComponents now contains only new overlaps that didn't exist previously.
 			for (const FOverlapInfo* NewOverlap : NewOverlappingComponentPtrs)
@@ -1631,7 +1558,7 @@ bool UVRRootComponent::IsLocallyControlled() const
 
 void UVRRootComponent::UpdatePhysicsVolume(bool bTriggerNotifiers)
 {
-	if (GetShouldUpdatePhysicsVolume() && !IsPendingKill())
+	if (GetShouldUpdatePhysicsVolume() && IsValid(this))
 	{
 		//	SCOPE_CYCLE_COUNTER(STAT_UpdatePhysicsVolume);
 		if (UWorld * MyWorld = GetWorld())

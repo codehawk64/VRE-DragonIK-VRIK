@@ -2,18 +2,14 @@
 
 #pragma once
 #include "CoreMinimal.h"
-#include "Engine/Engine.h"
-#include "VRBPDatatypes.h"
-#include "AITypes.h"
-#include "AI/Navigation/NavigationTypes.h"
-#include "Navigation/PathFollowingComponent.h"
-#include "GameFramework/Character.h"
+#include "CharacterMovementCompTypes.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "CharacterMovementCompTypes.h"
 #include "VRBaseCharacterMovementComponent.generated.h"
 
 class AVRBaseCharacter;
+struct FAIRequestID;
+struct FPathFollowingResult;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogVRBaseCharacterMovement, Log, All);
 
@@ -39,7 +35,7 @@ public:
 
 	/** BaseVR Character movement component belongs to */
 	UPROPERTY(Transient, DuplicateTransient)
-		AVRBaseCharacter* BaseVRCharacterOwner;
+		TObjectPtr<AVRBaseCharacter> BaseVRCharacterOwner;
 
 	virtual void SetUpdatedComponent(USceneComponent* NewUpdatedComponent);
 
@@ -62,6 +58,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VRBaseCharacterMovementComponent|Smoothing")
 		bool bDisableSimulatedTickWhenSmoothingMovement;
 
+	// When true the hmd movement injection speed is capped to the maximum movement speed
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VRMovement")
+		bool bCapHMDMovementToMaxMovementSpeed;
+
 	// Adding seated transition
 	void OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode) override;
 
@@ -83,8 +83,8 @@ public:
 	bool IsClimbing() const;
 
 	// Sets the crouching half height since it isn't exposed during runtime to blueprints
-	UFUNCTION(BlueprintCallable, Category = "VRMovement")
-		void SetCrouchedHalfHeight(float NewCrouchedHalfHeight);
+	//UFUNCTION(BlueprintCallable, Category = "VRMovement")
+	//	void SetCrouchedHalfHeight(float NewCrouchedHalfHeight);
 
 	// Setting this higher will divide the wall slide effect by this value, to reduce collision sliding.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VRMovement", meta = (ClampMin = "0.0", UIMin = "0", ClampMax = "5.0", UIMax = "5"))
@@ -215,6 +215,15 @@ public:
 		LastPreAdditiveVRVelocity += (CustomVRInputVector / deltaTime);
 
 		Velocity += LastPreAdditiveVRVelocity;
+
+		if (bCapHMDMovementToMaxMovementSpeed && GetReplicatedMovementMode() != EVRConjoinedMovementModes::C_MOVE_Falling)
+		{
+			if (IsExceedingMaxSpeed(GetMaxSpeed()))
+			{
+				// Force us to the max possible speed for the movement mode
+				Velocity = Velocity.GetSafeNormal() * GetMaxSpeed();
+			}
+		}
 	}
 
 	inline void RestorePreAdditiveVRMotionVelocity()

@@ -8,7 +8,6 @@
 #include "CharacterMovementCompTypes.h"
 #include "VRBaseCharacterMovementComponent.h"
 #include "VRBPDatatypes.h"
-#include "ParentRelativeAttachmentComponent.h"
 #include "VRBaseCharacter.h"
 #include "VRRootComponent.h"
 #include "VRPlayerController.h"
@@ -408,6 +407,7 @@ bool FVRCharacterNetworkMoveData::Serialize(UCharacterMovementComponent& Charact
 		//SerializeOptionalValue<uint8>(bIsSaving, Ar, MovementMode, MOVE_Walking); // Epic has this like this too, but it is bugged and killing movements
 	}
 
+
 	bool bHasReplicatedMovementMode = ReplicatedMovementMode != EVRConjoinedMovementModes::C_MOVE_MAX;
 	Ar.SerializeBits(&bHasReplicatedMovementMode, 1);
 
@@ -416,7 +416,7 @@ bool FVRCharacterNetworkMoveData::Serialize(UCharacterMovementComponent& Charact
 		// Increased to 6 bits for 64 total elements instead of 16
 		Ar.SerializeBits(&ReplicatedMovementMode, 6);
 	}
-	else if (!bIsSaving)
+	else if(!bIsSaving)
 	{
 		ReplicatedMovementMode = EVRConjoinedMovementModes::C_MOVE_MAX;
 	}
@@ -438,6 +438,29 @@ void FVRCharacterMoveResponseDataContainer::ServerFillResponseData(const UCharac
 
 	if (const UVRBaseCharacterMovementComponent* BaseMovecomp = Cast<const UVRBaseCharacterMovementComponent>(&CharacterMovement))
 	{
+		// #TODO: This is set in the pending adjustment now in 5.1
+		//bHasRotation = CharacterMovement.ShouldCorrectRotation();
 		bHasRotation = !BaseMovecomp->bUseClientControlRotation;
+	}
+}
+
+FScopedMeshBoneUpdateOverrideVR::FScopedMeshBoneUpdateOverrideVR(USkeletalMeshComponent* Mesh, EKinematicBonesUpdateToPhysics::Type OverrideSetting)
+	: MeshRef(Mesh)
+{
+	if (MeshRef)
+	{
+		// Save current state.
+		SavedUpdateSetting = MeshRef->KinematicBonesUpdateType;
+		// Override bone update setting.
+		MeshRef->KinematicBonesUpdateType = OverrideSetting;
+	}
+}
+
+FScopedMeshBoneUpdateOverrideVR::~FScopedMeshBoneUpdateOverrideVR()
+{
+	if (MeshRef)
+	{
+		// Restore bone update flag.
+		MeshRef->KinematicBonesUpdateType = SavedUpdateSetting;
 	}
 }

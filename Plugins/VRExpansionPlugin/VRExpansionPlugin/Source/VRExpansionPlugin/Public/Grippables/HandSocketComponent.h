@@ -3,21 +3,19 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GripMotionControllerComponent.h"
-#include "VRBPDatatypes.h"
-#include "VRGripInterface.h"
-#include "VRExpansionFunctionLibrary.h"
 #include "GameplayTagContainer.h"
 #include "GameplayTagAssetInterface.h"
 #include "Components/SceneComponent.h"
-#include "Components/SkeletalMeshComponent.h"
-#include "Components/PoseableMeshComponent.h"
-#include "Animation/AnimSequence.h"
 #include "Animation/AnimInstance.h"
-#include "Animation/AnimInstanceProxy.h"
-#include "Animation/PoseSnapshot.h"
 #include "Misc/Guid.h"
 #include "HandSocketComponent.generated.h"
+
+class USkeletalMeshComponent;
+class UPoseableMeshComponent;
+class USkeletalMesh;
+class UGripMotionControllerComponent;
+class UAnimSequence;
+struct FPoseSnapshot;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogVRHandSocketComponent, Log, All);
 
@@ -167,13 +165,23 @@ public:
 	// Primary hand animation, for both hands if they share animations, right hand if they don't
 	// If using a custom pose delta this is expected to be the base pose
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Animation")
-		UAnimSequence* HandTargetAnimation;
+		TObjectPtr<UAnimSequence> HandTargetAnimation;
 
 	// Scale to apply when mirroring the hand, adjust to visualize your off hand correctly
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hand Visualization")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Socket Data")
 		FVector MirroredScale;
 
-	FTransform GetBoneTransformAtTime(UAnimSequence* MyAnimSequence, /*float AnimTime,*/ int BoneIdx, bool bUseRawDataOnly);
+#if WITH_EDITORONLY_DATA
+	// If true we will attempt to only show editing widgets for bones matching the _l or _r postfixes
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Animation")
+		bool bFilterBonesByPostfix;
+
+	// The postfix to filter by
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Animation")
+		FString FilterPostfix;
+
+	FTransform GetBoneTransformAtTime(UAnimSequence* MyAnimSequence, /*float AnimTime,*/ int BoneIdx, FName BoneName, bool bUseRawDataOnly);
+#endif
 
 	// Returns the base target animation of the hand (if there is one)
 	UFUNCTION(BlueprintCallable, Category = "Hand Socket Data")
@@ -318,42 +326,15 @@ public:
 	// Returns the target relative transform of the hand to the gripped object
 	// If you want the transform mirrored you need to pass in which hand is requesting the information
 	// If UseParentScale is true then we will scale the value by the parent scale (generally only for when not using absolute hand scale)
+	// If UseMirrorScale is true then we will mirror the scale on the hand by the hand sockets mirror scale when appropriate (not for fully body!)
+	// if UseMirrorScale is false than the resulting transform will not have mirroring scale added so you may have to break the transform.
 	UFUNCTION(BlueprintCallable, Category = "Hand Socket Data")
-	FTransform GetMeshRelativeTransform(bool bIsRightHand, bool bUseParentScale = false);
+	FTransform GetMeshRelativeTransform(bool bIsRightHand, bool bUseParentScale = false, bool bUseMirrorScale = false);
 
 	// Returns the defined hand socket component (if it exists, you need to valid check the return!
 	// If it is a valid return you can then cast to your projects base socket class and handle whatever logic you want
 	UFUNCTION(BlueprintCallable, Category = "Hand Socket Data")
-	static UHandSocketComponent *  GetHandSocketComponentFromObject(UObject * ObjectToCheck, FName SocketName)
-	{
-		if (AActor* OwningActor = Cast<AActor>(ObjectToCheck))
-		{
-			if (USceneComponent* OwningRoot = Cast<USceneComponent>(OwningActor->GetRootComponent()))
-			{
-				TArray<USceneComponent*> AttachChildren = OwningRoot->GetAttachChildren();
-				for (USceneComponent* AttachChild : AttachChildren)
-				{
-					if (AttachChild && AttachChild->IsA<UHandSocketComponent>() && AttachChild->GetFName() == SocketName)
-					{
-						return Cast<UHandSocketComponent>(AttachChild);
-					}
-				}
-			}
-		}
-		else if (USceneComponent* OwningRoot = Cast<USceneComponent>(ObjectToCheck))
-		{
-			TArray<USceneComponent*> AttachChildren = OwningRoot->GetAttachChildren();
-			for (USceneComponent* AttachChild : AttachChildren)
-			{
-				if (AttachChild && AttachChild->IsA<UHandSocketComponent>() && AttachChild->GetFName() == SocketName)
-				{
-					return Cast<UHandSocketComponent>(AttachChild);
-				}
-			}
-		}
-
-		return nullptr;
-	}
+	static UHandSocketComponent* GetHandSocketComponentFromObject(UObject* ObjectToCheck, FName SocketName);
 
 	virtual FTransform GetHandSocketTransform(UGripMotionControllerComponent* QueryController, bool bIgnoreOnlySnapMesh = false);
 
@@ -367,7 +348,8 @@ public:
 	bool bTickedPose;
 
 	UPROPERTY()
-		bool bDecoupled;
+	bool bDecoupled;
+
 #endif
 	virtual void Serialize(FArchive& Ar) override;
 	virtual void OnRegister() override;
@@ -399,12 +381,12 @@ public:
 
 	/** mesh component to indicate hand placement */
 #if WITH_EDITORONLY_DATA
-	//UPROPERTY(EditAnywhere, BlueprintReadOnly, Transient, Category = "Hand Visualization")
-		//class USkeletalMeshComponent* HandVisualizerComponent;
-	class UPoseableMeshComponent* HandVisualizerComponent;
+
+	UPROPERTY()
+		TObjectPtr<UPoseableMeshComponent> HandVisualizerComponent;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Transient, Category = "Hand Visualization")
-		class USkeletalMesh* VisualizationMesh;
+		TObjectPtr<USkeletalMesh> VisualizationMesh;
 
 	// If we should show the visualization mesh
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hand Visualization")
@@ -427,7 +409,7 @@ public:
 #if WITH_EDITORONLY_DATA
 	// Material to apply to the hand
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Visualization")
-		UMaterial* HandPreviewMaterial;
+		TObjectPtr<UMaterial> HandPreviewMaterial;
 
 #endif
 };
@@ -440,7 +422,7 @@ class VREXPANSIONPLUGIN_API UHandSocketAnimInstance : public UAnimInstance
 public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, transient, Category = "Socket Data")
-		UHandSocketComponent* OwningSocket;
+		TObjectPtr<UHandSocketComponent> OwningSocket;
 
 	virtual void NativeInitializeAnimation() override
 	{

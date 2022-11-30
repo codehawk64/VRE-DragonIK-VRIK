@@ -2,9 +2,7 @@
 #include "SceneManagement.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "PhysicsEngine/PhysicsAsset.h"
-#if PHYSICS_INTERFACE_PHYSX
-#include "PhysXPublic.h"
-#endif
+#include "PhysicsEngine/ConstraintInstance.h"
 #include "ReferenceSkeleton.h"
 #include "DrawDebugHelpers.h"
 #include "Physics/PhysicsInterfaceCore.h"
@@ -78,7 +76,7 @@ FTransform UVREPhysicalAnimationComponent::GetRefPoseBoneRelativeTransform(USkel
 	{
 		//SkelMesh->ClearRefPoseOverride();
 		FReferenceSkeleton RefSkel;
-		RefSkel = SkeleMesh->SkeletalMesh->GetRefSkeleton();
+		RefSkel = SkeleMesh->GetSkinnedAsset()->GetRefSkeleton();
 
 		BoneTransform = GetWorldSpaceRefBoneTransform(RefSkel, RefSkel.FindBoneIndex(BoneName), RefSkel.FindBoneIndex(ParentBoneName));
 	}
@@ -105,10 +103,9 @@ void UVREPhysicalAnimationComponent::SetupWeldedBoneDriver_Implementation(bool b
 	//SkeleMesh->GetRefPosePosition()
 
 	UPhysicsAsset* PhysAsset = SkeleMesh ? SkeleMesh->GetPhysicsAsset() : nullptr;
-	if (PhysAsset && SkeleMesh->SkeletalMesh)
+	if (PhysAsset && SkeleMesh->GetSkinnedAsset())
 	{
 
-//#if PHYSICS_INTERFACE_PHYSX
 		for (FName BaseWeldedBoneDriverName : BaseWeldedBoneDriverNames)
 		{
 			int32 ParentBodyIdx = PhysAsset->FindBodyIndex(BaseWeldedBoneDriverName);
@@ -138,11 +135,8 @@ void UVREPhysicalAnimationComponent::SetupWeldedBoneDriver_Implementation(bool b
 									continue;
 								}
 							}
-#if WITH_CHAOS 
+
 							FKShapeElem* ShapeElem = FChaosUserData::Get<FKShapeElem>(FPhysicsInterface::GetUserData(Shape));
-#elif PHYSICS_INTERFACE_PHYSX
-							FKShapeElem* ShapeElem = FPhysxUserData::Get<FKShapeElem>(FPhysicsInterface::GetUserData(Shape));
-#endif
 							if (ShapeElem)
 							{
 								FName TargetBoneName = ShapeElem->GetName();
@@ -191,7 +185,6 @@ void UVREPhysicalAnimationComponent::SetupWeldedBoneDriver_Implementation(bool b
 				}
 			}
 		}
-//#endif
 	}
 }
 
@@ -208,19 +201,13 @@ void UVREPhysicalAnimationComponent::UpdateWeldedBoneDriver(float DeltaTime)
 	if (!BoneDriverMap.Num())
 		return;
 
-	/*
-	#if WITH_CHAOS || WITH_IMMEDIATE_PHYSX
-		//ensure(false);
-#else
-#endif
-	*/
 	USkeletalMeshComponent* SkeleMesh = GetSkeletalMesh();
 
 	if (!SkeleMesh || !SkeleMesh->Bodies.Num())// || (!SkeleMesh->IsSimulatingPhysics(BaseWeldedBoneDriverNames) && !SkeleMesh->IsWelded()))
 		return;
 
 	UPhysicsAsset* PhysAsset = SkeleMesh ? SkeleMesh->GetPhysicsAsset() : nullptr;
-	if(PhysAsset && SkeleMesh->SkeletalMesh)
+	if(PhysAsset && SkeleMesh->GetSkinnedAsset())
 	{
 		for (FName BaseWeldedBoneDriverName : BaseWeldedBoneDriverNames)
 		{
@@ -228,8 +215,9 @@ void UVREPhysicalAnimationComponent::UpdateWeldedBoneDriver(float DeltaTime)
 
 			if (FBodyInstance* ParentBody = (ParentBodyIdx == INDEX_NONE ? nullptr : SkeleMesh->Bodies[ParentBodyIdx]))
 			{
-				if (!ParentBody->IsInstanceSimulatingPhysics() && !ParentBody->WeldParent)
-					return;
+				// Allow it to run even when not simulating physics, if we have a welded root then it needs to animate anyway
+				//if (!ParentBody->IsInstanceSimulatingPhysics() && !ParentBody->WeldParent)
+				//	return;
 
 				FPhysicsActorHandle& ActorHandle = ParentBody->WeldParent ? ParentBody->WeldParent->GetPhysicsActorHandle() : ParentBody->GetPhysicsActorHandle();
 

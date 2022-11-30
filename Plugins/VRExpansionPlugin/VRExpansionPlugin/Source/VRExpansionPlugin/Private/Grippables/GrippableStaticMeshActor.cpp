@@ -2,8 +2,16 @@
 
 #include "Grippables/GrippableStaticMeshActor.h"
 #include "TimerManager.h"
+#include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerState.h"
+#include "GripMotionControllerComponent.h"
+#include "VRExpansionFunctionLibrary.h"
+#include "Misc/BucketUpdateSubsystem.h"
 #include "Net/UnrealNetwork.h"
 #include "PhysicsReplication.h"
+#include "GripScripts/VRGripScriptBase.h"
+#include "DrawDebugHelpers.h"
+
 #if WITH_PUSH_MODEL
 #include "Net/Core/PushModel/PushModel.h"
 #endif
@@ -83,6 +91,11 @@ AGrippableStaticMeshActor::AGrippableStaticMeshActor(const FObjectInitializer& O
 	
 	bRepGripSettingsAndGameplayTags = true;
 	bReplicateGripScripts = false;
+
+	// #TODO we can register them maybe in the future
+	// Don't use the replicated list, use our custom replication instead
+	bReplicateUsingRegisteredSubObjectList = false;
+
 	bAllowIgnoringAttachOnOwner = true;
 
 	// Setting a minimum of every 3rd frame (VR 90fps) for replication consideration
@@ -112,9 +125,9 @@ void AGrippableStaticMeshActor::PreReplication(IRepChangedPropertyTracker & Chan
 {
 	//Super::PreReplication(ChangedPropertyTracker);
 	
-	DOREPLIFETIME_ACTIVE_OVERRIDE(AGrippableStaticMeshActor, VRGripInterfaceSettings, bRepGripSettingsAndGameplayTags);
-	DOREPLIFETIME_ACTIVE_OVERRIDE(AGrippableStaticMeshActor, GameplayTags, bRepGripSettingsAndGameplayTags);
-	DOREPLIFETIME_ACTIVE_OVERRIDE(AGrippableStaticMeshActor, GripLogicScripts, bReplicateGripScripts);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(AGrippableStaticMeshActor, VRGripInterfaceSettings, bRepGripSettingsAndGameplayTags);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(AGrippableStaticMeshActor, GameplayTags, bRepGripSettingsAndGameplayTags);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(AGrippableStaticMeshActor, GripLogicScripts, bReplicateGripScripts);
 	
 	//Super::PreReplication(ChangedPropertyTracker);
 
@@ -132,24 +145,27 @@ void AGrippableStaticMeshActor::PreReplication(IRepChangedPropertyTracker & Chan
 	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(AActor, ReplicatedMovement, IsReplicatingMovement());
 
 	// Don't need to replicate AttachmentReplication if the root component replicates, because it already handles it.
-	DOREPLIFETIME_ACTIVE_OVERRIDE(AGrippableStaticMeshActor, AttachmentWeldReplication, RootComponent && !RootComponent->GetIsReplicated());
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(AGrippableStaticMeshActor, AttachmentWeldReplication, RootComponent && !RootComponent->GetIsReplicated());
 
 	// Don't need to replicate AttachmentReplication if the root component replicates, because it already handles it.
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(AActor, AttachmentReplication, RootComponent && !RootComponent->GetIsReplicated());
+	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(AActor, AttachmentReplication, false);// RootComponent && !RootComponent->GetIsReplicated());
 
 
 #if WITH_PUSH_MODEL
 	if (UNLIKELY(OldAttachParent != AttachmentWeldReplication.AttachParent || OldAttachComponent != AttachmentWeldReplication.AttachComponent))
 	{
-		//MARK_PROPERTY_DIRTY_FROM_NAME(AGrippableStaticMeshActor, AttachmentWeldReplication, this);
+		MARK_PROPERTY_DIRTY_FROM_NAME(AGrippableStaticMeshActor, AttachmentWeldReplication, this);
 	}
 #endif
 
+	PRAGMA_DISABLE_DEPRECATION_WARNINGS
 	UBlueprintGeneratedClass* BPClass = Cast<UBlueprintGeneratedClass>(GetClass());
 	if (BPClass != nullptr)
 	{
 		BPClass->InstancePreReplication(this, ChangedPropertyTracker);
 	}
+	PRAGMA_ENABLE_DEPRECATION_WARNINGS
+
 }
 
 void AGrippableStaticMeshActor::GatherCurrentMovement()
@@ -170,10 +186,30 @@ void AGrippableStaticMeshActor::GatherCurrentMovement()
 		UPrimitiveComponent* RootPrimComp = Cast<UPrimitiveComponent>(GetRootComponent());
 		if (RootPrimComp && RootPrimComp->IsSimulatingPhysics())
 		{
-			FRigidBodyState RBState;
-			RootPrimComp->GetRigidBodyState(RBState);
+#if UE_WITH_IRIS
+			const bool bPrevRepPhysics = ReplicatedMovement.bRepPhysics;
+#endif // UE_WITH_IRIS
 
-			RepMovement.FillFrom(RBState, this);
+			bool bFoundInCache = false;
+
+			UWorld* World = GetWorld();
+			if (FPhysScene_Chaos* Scene = static_cast<FPhysScene_Chaos*>(World->GetPhysicsScene()))
+			{
+				if (FRigidBodyState* FoundState = Scene->ReplicationCache.Map.Find(FObjectKey(RootPrimComp)))
+				{
+					RepMovement.FillFrom(*FoundState, this, Scene->ReplicationCache.ServerFrame);
+					bFoundInCache = true;
+				}
+			}
+
+			if (!bFoundInCache)
+			{
+				// fallback to GT data
+				FRigidBodyState RBState;
+				RootPrimComp->GetRigidBodyState(RBState);
+				RepMovement.FillFrom(RBState, this, 0);
+			}
+
 			// Don't replicate movement if we're welded to another parent actor.
 			// Their replication will affect our position indirectly since we are attached.
 			RepMovement.bRepPhysics = !RootPrimComp->IsWelded();
@@ -202,6 +238,14 @@ void AGrippableStaticMeshActor::GatherCurrentMovement()
 
 			// Technically, the values might have stayed the same, but we'll just assume they've changed.
 			bWasRepMovementModified = true;
+
+#if UE_WITH_IRIS
+			// If RepPhysics has changed value then notify the ReplicationSystem
+			if (bPrevRepPhysics != ReplicatedMovement.bRepPhysics)
+			{
+				UpdateReplicatePhysicsCondition();
+			}
+#endif // UE_WITH_IRIS
 		}
 		else if (RootComponent != nullptr)
 		{
@@ -210,7 +254,7 @@ void AGrippableStaticMeshActor::GatherCurrentMovement()
 			{
 				// Networking for attachments assumes the RootComponent of the AttachParent actor. 
 				// If that's not the case, we can't update this, as the client wouldn't be able to resolve the Component and would detach as a result.
-				AttachmentWeldReplication.AttachParent = RootComponent->GetAttachParent()->GetAttachmentRootActor();
+				AttachmentWeldReplication.AttachParent = RootComponent->GetAttachParentActor();
 				if (AttachmentWeldReplication.AttachParent != nullptr)
 				{
 					AttachmentWeldReplication.LocationOffset = RootComponent->GetRelativeLocation();
@@ -241,14 +285,14 @@ void AGrippableStaticMeshActor::GatherCurrentMovement()
 #if WITH_PUSH_MODEL
 		if (bWasRepMovementModified)
 		{
-		//	MARK_PROPERTY_DIRTY_FROM_NAME(AActor, ReplicatedMovement, this);
+			MARK_PROPERTY_DIRTY_FROM_NAME(AActor, ReplicatedMovement, this);
 		}
 
 		if (bWasAttachmentModified ||
 			OldAttachParent != AttachmentWeldReplication.AttachParent ||
 			OldAttachComponent != AttachmentWeldReplication.AttachComponent)
 		{
-			//MARK_PROPERTY_DIRTY_FROM_NAME(AGrippableStaticMeshActor, AttachmentWeldReplication, this);
+			MARK_PROPERTY_DIRTY_FROM_NAME(AGrippableStaticMeshActor, AttachmentWeldReplication, this);
 		}
 #endif
 	}
@@ -262,7 +306,7 @@ bool AGrippableStaticMeshActor::ReplicateSubobjects(UActorChannel* Channel, clas
 	{
 		for (UVRGripScriptBase* Script : GripLogicScripts)
 		{
-			if (Script && !Script->IsPendingKill())
+			if (Script && IsValid(Script))
 			{
 				WroteSomething |= Channel->ReplicateSubobject(Script, *Bunch, *RepFlags);
 			}
@@ -625,9 +669,12 @@ void AGrippableStaticMeshActor::Server_GetClientAuthReplication_Implementation(c
 {
 	if (!VRGripInterfaceSettings.bIsHeld)
 	{
-		FRepMovement& MovementRep = GetReplicatedMovement_Mutable();
-		newMovement.CopyTo(MovementRep);
-		OnRep_ReplicatedMovement();
+		if (!newMovement.Location.ContainsNaN() && !newMovement.Rotation.ContainsNaN())
+		{
+			FRepMovement& MovementRep = GetReplicatedMovement_Mutable();
+			newMovement.CopyTo(MovementRep);
+			OnRep_ReplicatedMovement();
+		}
 	}
 }
 
@@ -643,7 +690,7 @@ void AGrippableStaticMeshActor::OnRep_AttachmentReplication()
 	{
 		if (RootComponent)
 		{
-			USceneComponent* AttachParentComponent = (AttachmentWeldReplication.AttachComponent ? AttachmentWeldReplication.AttachComponent : AttachmentWeldReplication.AttachParent->GetRootComponent());
+			USceneComponent* AttachParentComponent = (AttachmentWeldReplication.AttachComponent ? ToRawPtr(AttachmentWeldReplication.AttachComponent) : AttachmentWeldReplication.AttachParent->GetRootComponent());
 
 			if (AttachParentComponent)
 			{
@@ -745,7 +792,7 @@ void AGrippableStaticMeshActor::MarkComponentsAsPendingKill()
 	{
 		if (UObject *SubObject = GripLogicScripts[i])
 		{
-			SubObject->MarkPendingKill();
+			SubObject->MarkAsGarbage();
 		}
 	}
 
@@ -763,7 +810,7 @@ void AGrippableStaticMeshActor::PreDestroyFromReplication()
 		{
 			OnSubobjectDestroyFromReplication(SubObject); //-V595
 			SubObject->PreDestroyFromReplication();
-			SubObject->MarkPendingKill();
+			SubObject->MarkAsGarbage();
 		}
 	}
 
@@ -771,7 +818,7 @@ void AGrippableStaticMeshActor::PreDestroyFromReplication()
 	{
 		// Pending kill components should have already had this called as they were network spawned and are being killed
 		// We only call this on our interfaced components since they are the only ones that should implement grip scripts
-		if (ActorComp && !ActorComp->IsPendingKill() && ActorComp->GetClass()->ImplementsInterface(UVRGripInterface::StaticClass()))
+		if (ActorComp && IsValid(ActorComp) && ActorComp->GetClass()->ImplementsInterface(UVRGripInterface::StaticClass()))
 			ActorComp->PreDestroyFromReplication();
 	}
 
@@ -786,7 +833,7 @@ void AGrippableStaticMeshActor::BeginDestroy()
 	{
 		if (UObject *SubObject = GripLogicScripts[i])
 		{
-			SubObject->MarkPendingKill();
+			SubObject->MarkAsGarbage();
 		}
 	}
 

@@ -129,7 +129,6 @@ void UFindSessionsCallbackProxyAdvanced::Activate()
 			case EBPServerPresenceSearchType::AllServers:
 			default:
 			{
-				// Only steam uses the separate searching flags currently
 				//if (IOnlineSubsystem::DoesInstanceExist("STEAM"))
 				//{
 				bRunSecondSearch = true;

@@ -2,16 +2,18 @@
 
 #pragma once
 #include "CoreMinimal.h"
-#include "UObject/ObjectMacros.h"
-#include "UObject/ScriptMacros.h"
+//#include "UObject/ObjectMacros.h"
+//#include "UObject/ScriptMacros.h"
 #include "VRBPDatatypes.h"
-#include "GripScripts/VRGripScriptBase.h"
+#include "InputCore/Classes/InputCoreTypes.h"
+#include "Engine/EngineBaseTypes.h"
 #include "UObject/Interface.h"
 
 #include "VRGripInterface.generated.h"
 
 // Forward declare
 class UGripMotionControllerComponent;
+class UVRGripScriptBase;
 
 UINTERFACE(Blueprintable)
 class VREXPANSIONPLUGIN_API UVRGripInterface: public UInterface

@@ -13,7 +13,7 @@ UCreateSessionCallbackProxyAdvanced::UCreateSessionCallbackProxyAdvanced(const F
 {
 }
 
-UCreateSessionCallbackProxyAdvanced* UCreateSessionCallbackProxyAdvanced::CreateAdvancedSession(UObject* WorldContextObject, const TArray<FSessionPropertyKeyPair> &ExtraSettings, class APlayerController* PlayerController, int32 PublicConnections, int32 PrivateConnections, bool bUseLAN, bool bAllowInvites, bool bIsDedicatedServer, bool bUsePresence, bool bUseLobbiesIfAvailable, bool bAllowJoinViaPresence, bool bAllowJoinViaPresenceFriendsOnly, bool bAntiCheatProtected, bool bUsesStats, bool bShouldAdvertise, bool bUseLobbiesVoiceChatIfAvailable, bool bStartAfterCreate)
+UCreateSessionCallbackProxyAdvanced* UCreateSessionCallbackProxyAdvanced::CreateAdvancedSession(UObject* WorldContextObject, const TArray<FSessionPropertyKeyPair>& ExtraSettings, class APlayerController* PlayerController, int32 PublicConnections, int32 PrivateConnections, bool bUseLAN, bool bAllowInvites, bool bIsDedicatedServer, bool bUsePresence, bool bUseLobbiesIfAvailable, bool bAllowJoinViaPresence, bool bAllowJoinViaPresenceFriendsOnly, bool bAntiCheatProtected, bool bUsesStats, bool bShouldAdvertise, bool bUseLobbiesVoiceChatIfAvailable, bool bStartAfterCreate)
 {
 	UCreateSessionCallbackProxyAdvanced* Proxy = NewObject<UCreateSessionCallbackProxyAdvanced>();
 	Proxy->PlayerControllerWeakPtr = PlayerController;
@@ -53,7 +53,7 @@ void UCreateSessionCallbackProxyAdvanced::Activate()
 			FOnlineSessionSettings Settings;
 			Settings.NumPublicConnections = NumPublicConnections;
 			Settings.NumPrivateConnections = NumPrivateConnections;
-			Settings.bShouldAdvertise = true;
+			Settings.bShouldAdvertise = bShouldAdvertise;
 			Settings.bAllowJoinInProgress = true;
 			Settings.bIsLANMatch = bUseLAN;
 			Settings.bAllowJoinViaPresence = bAllowJoinViaPresence;
@@ -74,7 +74,6 @@ void UCreateSessionCallbackProxyAdvanced::Activate()
 			Settings.bAllowJoinViaPresenceFriendsOnly = bAllowJoinViaPresenceFriendsOnly;
 			Settings.bAntiCheatProtected = bAntiCheatProtected;
 			Settings.bUsesStats = bUsesStats;
-			Settings.bShouldAdvertise = bShouldAdvertise;
 
 			// These are about the only changes over the standard Create Sessions Node
 			Settings.bAllowInvites = bAllowInvites;
@@ -134,7 +133,7 @@ void UCreateSessionCallbackProxyAdvanced::OnCreateCompleted(FName SessionName, b
 			
 			if (bWasSuccessful)
 			{
-				if(this->bStartAfterCreate)
+				if (this->bStartAfterCreate)
 				{
 					UE_LOG_ONLINE_SESSION(Display, TEXT("Session creation completed. Automatic start is turned on, starting session now."));
 					StartCompleteDelegateHandle = Sessions->AddOnStartSessionCompleteDelegate_Handle(StartCompleteDelegate);

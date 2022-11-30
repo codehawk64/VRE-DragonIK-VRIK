@@ -1,44 +1,14 @@
 #pragma once
-
+#include "CoreMinimal.h"
 #include "GameFramework/PlayerInput.h"
 #include "GameFramework/InputSettings.h"
 #include "VRBPDatatypes.h"
+#include "Curves/CurveFloat.h"
 #include "GripScripts/GS_Melee.h"
 #include "GripScripts/GS_GunTools.h"
 #include "VRGlobalSettings.generated.h"
 
-
-/*namespace ControllerProfileStatics
-{
-	static const FTransform OculusTouchStaticOffset(FRotator(-70.f, 0.f, 0.f));
-}*/
-
-// As of 4.24 these do nothing, they are left for a few versions as a reference of old bindings
-// #TODO: Delete around 4.26
-/*USTRUCT(BlueprintType, Category = "VRGlobalSettings")
-struct FAxisMappingDetails
-{
-	GENERATED_BODY()
-public:
-
-	// List of all axis key mappings that correspond to the axis name in the containing map 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
-	TArray<FInputAxisKeyMapping> AxisMappings;
-
-};
-
-// As of 4.24 these do nothing, they are left for a few versions as a reference of old bindings
-// #TODO: Delete around 4.26
-USTRUCT(BlueprintType, Category = "VRGlobalSettings")
-struct FActionMappingDetails
-{
-	GENERATED_BODY()
-public:
-
-	// List of all axis key mappings that correspond to the axis name in the containing map 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
-		TArray<FInputActionKeyMapping> ActionMappings;
-};*/
+class UGrippableSkeletalMeshComponent;
 
 USTRUCT(BlueprintType, Category = "ControllerProfiles")
 struct VREXPANSIONPLUGIN_API FBPVRControllerProfile
@@ -61,18 +31,6 @@ public:
 	// Offset to use with this controller
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ControllerProfiles", meta = (editcondition = "bUseSeperateHandOffsetTransforms"))
 		FTransform_NetQuantize SocketOffsetTransformRightHand;
-
-	// Setting an axis value here with key bindings will override the equivalent bindings on profile load
-	// As of 4.24 these do nothing, they are left for a few versions as a reference of old bindings
-	// #TODO: Delete around 4.26
-	/*UPROPERTY(EditDefaultsOnly, NotReplicated, Category = "ControllerProfiles")
-	TMap<FName, FAxisMappingDetails> AxisOverrides;
-
-	// Setting action mappings here will override the equivalent bindings on profile load
-		// As of 4.24 these do nothing, they are left for a few versions as a reference of old bindings
-	// #TODO: Delete around 4.26
-	UPROPERTY(EditDefaultsOnly, NotReplicated, Category = "ControllerProfiles")
-	TMap<FName, FActionMappingDetails> ActionOverrides;*/
 
 
 	FBPVRControllerProfile() :
@@ -117,6 +75,40 @@ class VREXPANSIONPLUGIN_API UVRGlobalSettings : public UObject
 public:
 	UVRGlobalSettings(const FObjectInitializer& ObjectInitializer);
 
+	// Set scaler values
+	void SetScalers();
+
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+
+	// The skeletal mesh component class to use for grippable characters
+	// If you set this to none it will fall back to the default grippable class so that it doesn't brick your project
+	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "Misc")
+		TSubclassOf<class UGrippableSkeletalMeshComponent> DefaultGrippableCharacterMeshComponentClass;
+
+	// Using a getter to stay safe from bricking peoples projects if they set it to none somehow
+	static TSubclassOf<class UGrippableSkeletalMeshComponent> GetDefaultGrippableCharacterMeshComponentClass();
+
+	// If true we will use contact modification for the collision ignore subsystem
+	// Its more expensive but works with non simulating pairs
+	// #WARNING: Don't use yet EXPERIMENTAL
+	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "ChaosPhysics|CollisionIgnore")
+		bool bUseCollisionModificationForCollisionIgnore;
+
+	// Number of updates a second to use for the collision cleanup checks
+	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "ChaosPhysics|CollisionIgnore")
+		float CollisionIgnoreSubsystemUpdateRate;
+
+	// Whether we should use the physx to chaos translation scalers or not
+	// This should be off on native chaos projects that have been set with the correct stiffness and damping settings already
+	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "ChaosPhysics")
+		bool bUseChaosTranslationScalers; 
+
+	// If true we will also set the engines chaos scalers as well to equal our overrides
+	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "ChaosPhysics")
+		bool bSetEngineChaosScalers;
+
 	// A scaler to apply to constraint drives when chaos is active
 	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "ChaosPhysics")
 		float LinearDriveStiffnessScale;
@@ -133,9 +125,50 @@ public:
 	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "ChaosPhysics")
 		float AngularDriveDampingScale;
 
+	// Hard joint stiffness
+	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "ChaosPhysics|Constraints")
+		float JointStiffness;
+
+	// A scaler to apply to constraints when chaos is active
+	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "ChaosPhysics|Constraints")
+		float SoftLinearStiffnessScale;
+
+	// A scaler to apply to constraints when chaos is active
+	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "ChaosPhysics|Constraints")
+		float SoftLinearDampingScale;
+
+	// A scaler to apply to constraints when chaos is active
+	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "ChaosPhysics|Constraints")
+		float SoftAngularStiffnessScale;
+
+	// A scaler to apply to constraints when chaos is active
+	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "ChaosPhysics|Constraints")
+		float SoftAngularDampingScale;
+
+	// A scaler to apply to constraints when chaos is active
+	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "ChaosPhysics|Constraints")
+		float JointLinearBreakScale;
+
+	// A scaler to apply to constraints when chaos is active
+	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "ChaosPhysics|Constraints")
+		float JointAngularBreakScale;
+
+	// If we should lerp hybrid with sweep grips out of collision
+	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "HybridWithSweepLerp")
+		bool bLerpHybridWithSweepGrips;
+
+	// If true we only lerp the rotation of hybrid grips
+	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "HybridWithSweepLerp")
+		bool bOnlyLerpHybridRotation;
+
+	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "HybridWithSweepLerp")
+		float HybridWithSweepLerpDuration;
 
 	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "GlobalLerpToHand")
 		bool bUseGlobalLerpToHand;
+
+	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "GlobalLerpToHand")
+		bool bSkipLerpToHandIfHeld;
 
 	// If the initial grip distance is closer than this value then the lerping will not be performed.
 	UPROPERTY(config, BlueprintReadWrite, EditAnywhere, Category = "GlobalLerpToHand")
@@ -169,11 +202,6 @@ public:
 	// Alter the values of the virtual stock settings and save them out
 	UFUNCTION(BlueprintPure, Category = "GlobalLerpToHand")
 		static bool IsGlobalLerpEnabled();
-
-	// How many passes CCD will take during simulation, larger values significantly increase the cost of CCD calculation but also prevent tunneling artifacts
-	// Physx only
-	UPROPERTY(config, EditAnywhere, Category = "Physics")
-		int MaxCCDPasses;
 
 	// List of surfaces and their properties for the melee script
 	UPROPERTY(config, EditAnywhere, Category = "MeleeSettings")

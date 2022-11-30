@@ -4,16 +4,24 @@
 #include "Engine/Engine.h"
 #include "IXRTrackingSystem.h"
 #include "IHeadMountedDisplay.h"
+#include "InputCore/Classes/InputCoreTypes.h"
 #include "Grippables/HandSocketComponent.h"
 #include "Misc/CollisionIgnoreSubsystem.h"
+#include "Components/SplineComponent.h"
+#include "Components/SplineMeshComponent.h"
+#include "Components/PrimitiveComponent.h"
+#include "GripMotionControllerComponent.h"
+//#include "IMotionController.h"
+//#include "HeadMountedDisplayFunctionLibrary.h"
+#include "Grippables/GrippablePhysicsReplication.h"
+#include "GameplayTagContainer.h"
+//#include "IHeadMountedDisplay.h"
 
-#if WITH_CHAOS
 #include "Chaos/ParticleHandle.h"
 #include "Chaos/KinematicGeometryParticles.h"
 #include "Chaos/ParticleHandle.h"
 #include "PhysicsProxy/SingleParticlePhysicsProxy.h"
 #include "PBDRigidsSolver.h"
-#endif
 
 #if WITH_EDITOR
 #include "Editor/UnrealEd/Classes/Editor/EditorEngine.h"
@@ -50,6 +58,26 @@ void UVRExpansionFunctionLibrary::SetActorsIgnoreAllCollision(UObject* WorldCont
 		{
 			for (int j = 0; j < PrimitiveComponents2.Num(); ++j)
 			{
+
+				// Don't ignore collision if one is already invalid
+				if (!IsValid(PrimitiveComponents1[i]) || !IsValid(PrimitiveComponents2[j]))
+				{
+					continue;
+				}
+
+				// Don't ignore collision if no collision on at least one of the objects
+				if (PrimitiveComponents1[i]->GetCollisionEnabled() == ECollisionEnabled::NoCollision || PrimitiveComponents2[j]->GetCollisionEnabled() == ECollisionEnabled::NoCollision)
+				{
+					if (!bIgnoreCollision)
+					{
+						if (CollisionIgnoreSubsystem->AreComponentsIgnoringCollisions(PrimitiveComponents1[i], PrimitiveComponents2[j]))
+						{
+							UE_LOG(VRExpansionFunctionLibraryLog, Error, TEXT("Set Actors Ignore Collision called with at least one object set to no collision that are ignoring collision already!! %s, %s"),*PrimitiveComponents1[i]->GetName(), *PrimitiveComponents2[j]->GetName());
+						}
+					}
+					continue;
+				}
+
 				CollisionIgnoreSubsystem->SetComponentCollisionIgnoreState(true, true, PrimitiveComponents1[i], NAME_None, PrimitiveComponents2[j], NAME_None, bIgnoreCollision, bIgnorefirst);
 				bIgnorefirst = false;
 			}
@@ -68,7 +96,6 @@ void UVRExpansionFunctionLibrary::SetObjectsIgnoreCollision(UObject* WorldContex
 }
 
 
-
 bool UVRExpansionFunctionLibrary::IsComponentIgnoringCollision(UObject* WorldContextObject, UPrimitiveComponent* Prim1)
 {
 	UCollisionIgnoreSubsystem* CollisionIgnoreSubsystem = WorldContextObject->GetWorld()->GetSubsystem<UCollisionIgnoreSubsystem>();
@@ -76,6 +103,18 @@ bool UVRExpansionFunctionLibrary::IsComponentIgnoringCollision(UObject* WorldCon
 	if (CollisionIgnoreSubsystem)
 	{
 		return CollisionIgnoreSubsystem->IsComponentIgnoringCollision(Prim1);
+	}
+
+	return false;
+}
+
+bool UVRExpansionFunctionLibrary::AreComponentsIgnoringCollisions(UObject* WorldContextObject, UPrimitiveComponent* Prim1, UPrimitiveComponent * Prim2)
+{
+	UCollisionIgnoreSubsystem* CollisionIgnoreSubsystem = WorldContextObject->GetWorld()->GetSubsystem<UCollisionIgnoreSubsystem>();
+
+	if (CollisionIgnoreSubsystem && CollisionIgnoreSubsystem->CollisionTrackedPairs.Num() > 0)
+	{
+		return CollisionIgnoreSubsystem->AreComponentsIgnoringCollisions(Prim1, Prim2);
 	}
 
 	return false;
@@ -270,6 +309,17 @@ void UVRExpansionFunctionLibrary::GetGripSlotInRangeByTypeName_Component(FName S
 			SlotWorldTransform.SetScale3D(FVector(1.0f));
 		}
 	}
+}
+
+bool UVRExpansionFunctionLibrary::GetHandFromMotionSourceName(FName MotionSource, EControllerHand& Hand)
+{
+	Hand = EControllerHand::Left;
+	if (FXRMotionControllerBase::GetHandEnumForSourceName(MotionSource, Hand))
+	{
+		return true;
+	}
+
+	return false;
 }
 
 FRotator UVRExpansionFunctionLibrary::GetHMDPureYaw(FRotator HMDRotation)
@@ -524,9 +574,8 @@ bool UVRExpansionFunctionLibrary::EqualEqual_FBPActorGripInformation(const FBPAc
 
 bool UVRExpansionFunctionLibrary::IsActiveGrip(const FBPActorGripInformation& Grip)
 {
-	return Grip.IsValid() && !Grip.bIsPaused;
+	return Grip.IsActive();
 }
-
 
 FTransform_NetQuantize UVRExpansionFunctionLibrary::MakeTransform_NetQuantize(FVector Translation, FRotator Rotation, FVector Scale)
 {
@@ -607,4 +656,93 @@ USceneComponent* UVRExpansionFunctionLibrary::AddSceneComponentByClass(UObject* 
 	}
 
 	return nullptr;
+}
+
+void UVRExpansionFunctionLibrary::SmoothUpdateLaserSpline(USplineComponent* LaserSplineComponent, TArray<USplineMeshComponent*> LaserSplineMeshComponents, FVector InStartLocation, FVector InEndLocation, FVector InForward, float LaserRadius)
+{
+	if (LaserSplineComponent == nullptr)
+		return;
+
+	LaserSplineComponent->ClearSplinePoints();
+
+	const FVector SmoothLaserDirection = InEndLocation - InStartLocation;
+	float Distance = SmoothLaserDirection.Size();
+	const FVector StraightLaserEndLocation = InStartLocation + (InForward * Distance);
+	const int32 NumLaserSplinePoints = LaserSplineMeshComponents.Num();
+
+	LaserSplineComponent->AddSplinePoint(InStartLocation, ESplineCoordinateSpace::World, false);
+	for (int32 Index = 1; Index < NumLaserSplinePoints; Index++)
+	{
+		float Alpha = (float)Index / (float)NumLaserSplinePoints;
+		Alpha = FMath::Sin(Alpha * PI * 0.5f);
+		const FVector PointOnStraightLaser = FMath::Lerp(InStartLocation, StraightLaserEndLocation, Alpha);
+		const FVector PointOnSmoothLaser = FMath::Lerp(InStartLocation, InEndLocation, Alpha);
+		const FVector PointBetweenLasers = FMath::Lerp(PointOnStraightLaser, PointOnSmoothLaser, Alpha);
+		LaserSplineComponent->AddSplinePoint(PointBetweenLasers, ESplineCoordinateSpace::World, false);
+	}
+	LaserSplineComponent->AddSplinePoint(InEndLocation, ESplineCoordinateSpace::World, false);
+
+	// Update all the segments of the spline
+	LaserSplineComponent->UpdateSpline();
+
+	const float LaserPointerRadius = LaserRadius;
+	Distance *= 0.0001f;
+	for (int32 Index = 0; Index < NumLaserSplinePoints; Index++)
+	{
+		USplineMeshComponent* SplineMeshComponent = LaserSplineMeshComponents[Index];
+		check(SplineMeshComponent != nullptr);
+
+		FVector StartLoc, StartTangent, EndLoc, EndTangent;
+		LaserSplineComponent->GetLocationAndTangentAtSplinePoint(Index, StartLoc, StartTangent, ESplineCoordinateSpace::Local);
+		LaserSplineComponent->GetLocationAndTangentAtSplinePoint(Index + 1, EndLoc, EndTangent, ESplineCoordinateSpace::Local);
+
+		const float AlphaIndex = (float)Index / (float)NumLaserSplinePoints;
+		const float AlphaDistance = Distance * AlphaIndex;
+		float Radius = LaserPointerRadius * ((AlphaIndex * AlphaDistance) + 1);
+		FVector2D LaserScale(Radius, Radius);
+		SplineMeshComponent->SetStartScale(LaserScale, false);
+
+		const float NextAlphaIndex = (float)(Index + 1) / (float)NumLaserSplinePoints;
+		const float NextAlphaDistance = Distance * NextAlphaIndex;
+		Radius = LaserPointerRadius * ((NextAlphaIndex * NextAlphaDistance) + 1);
+		LaserScale = FVector2D(Radius, Radius);
+		SplineMeshComponent->SetEndScale(LaserScale, false);
+
+		SplineMeshComponent->SetStartAndEnd(StartLoc, StartTangent, EndLoc, EndTangent, true);
+	}
+
+}
+
+bool UVRExpansionFunctionLibrary::MatchesAnyTagsWithDirectParentTag(FGameplayTag DirectParentTag, const FGameplayTagContainer& BaseContainer, const FGameplayTagContainer& OtherContainer)
+{
+	TArray<FGameplayTag> BaseContainerTags;
+	BaseContainer.GetGameplayTagArray(BaseContainerTags);
+
+	for (const FGameplayTag& OtherTag : BaseContainerTags)
+	{
+		if (OtherTag.RequestDirectParent().MatchesTagExact(DirectParentTag))
+		{
+			if (OtherContainer.HasTagExact(OtherTag))
+				return true;
+		}
+	}
+
+	return false;
+}
+
+bool UVRExpansionFunctionLibrary::GetFirstGameplayTagWithExactParent(FGameplayTag DirectParentTag, const FGameplayTagContainer& BaseContainer, FGameplayTag& FoundTag)
+{
+	TArray<FGameplayTag> BaseContainerTags;
+	BaseContainer.GetGameplayTagArray(BaseContainerTags);
+
+	for (const FGameplayTag& OtherTag : BaseContainerTags)
+	{
+		if (OtherTag.RequestDirectParent().MatchesTagExact(DirectParentTag))
+		{
+			FoundTag = OtherTag;
+			return true;
+		}
+	}
+
+	return false;
 }

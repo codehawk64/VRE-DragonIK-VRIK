@@ -2,15 +2,9 @@
 
 #pragma once
 #include "CoreMinimal.h"
-#include "UObject/ObjectMacros.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
-#include "UObject/Object.h"
-#include "Engine/Texture.h"
-#include "Engine/EngineTypes.h"
-#include "RHI.h"
-//#include "EngineMinimal.h"
-#include "IMotionController.h"
-//#include "VRBPDatatypes.h"
+
+class UTexture;
 
 //Re-defined here as I can't load ISteamVRPlugin on non windows platforms
 // Make sure to update if it changes
@@ -30,17 +24,9 @@ static FName SteamVRSystemName(TEXT("SteamVR"));
 
 #endif // STEAMVR_SUPPORTED_PLATFORM
 
-#include "ProceduralMeshComponent.h"
-#include "KismetProceduralMeshLibrary.h"
-// Or procedural mesh component throws an error....
-//#include "PhysicsEngine/ConvexElem.h" // Fixed in 4.13.1?
-
-//#include "HeadMountedDisplay.h" 
-//#include "HeadMountedDisplayFunctionLibrary.h"
-#include "HeadMountedDisplayFunctionLibrary.h"
-#include "IHeadMountedDisplay.h"
-
 #include "OpenVRExpansionFunctionLibrary.generated.h"
+
+class UProceduralMeshComponent;
 
 //General Advanced Sessions Log
 DECLARE_LOG_CATEGORY_EXTERN(OpenVRExpansionFunctionLibraryLog, Log, All);
@@ -205,7 +191,7 @@ enum class EBPSteamVRTrackedDeviceType : uint8
 #if STEAMVR_SUPPORTED_PLATFORM
 static vr::ETrackedDeviceProperty VREnumToString(const FString& enumName, uint8 value)
 {
-	const UEnum* EnumPtr = FindObject<UEnum>(ANY_PACKAGE, *enumName, true);
+	const UEnum* EnumPtr = FindFirstObject<UEnum>(*enumName, EFindFirstObjectOptions::None, ELogVerbosity::Warning, TEXT("VREumtoString"));
 
 	if (!EnumPtr)
 		return vr::ETrackedDeviceProperty::Prop_Invalid;
@@ -515,6 +501,7 @@ enum class EBPOpenVRHMDDeviceType : uint8
 	DT_OculusQuestHMD,
 	DT_OculusHMD,
 	DT_WindowsMR,
+	DT_PicoNeo3,
 	//DT_OSVR,
 	DT_Unknown
 };
@@ -530,6 +517,7 @@ enum class EBPOpenVRControllerDeviceType : uint8
 	DT_RiftSController,
 	DT_QuestController,
 	DT_WMRController,
+	DT_PicoNeo3Controller,
 	DT_UnknownController
 };
 
@@ -721,7 +709,7 @@ public:
 		vr::Texture_t VRTexture;
 
 		if (Texture)
-			VRTexture.handle = Texture->Resource->TextureRHI->GetNativeResource();
+			VRTexture.handle = Texture->GetResource()->TextureRHI->GetNativeResource();
 		else
 			VRTexture.handle = NULL;
 

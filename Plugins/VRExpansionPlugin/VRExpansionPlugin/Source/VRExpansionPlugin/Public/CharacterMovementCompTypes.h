@@ -2,12 +2,11 @@
 
 #pragma once
 #include "CoreMinimal.h"
-#include "Engine/Engine.h"
 #include "VRBPDatatypes.h"
 #include "GameFramework/Character.h"
-#include "GameFramework/CharacterMovementComponent.h"
-#include "GameFramework/CharacterMovementReplication.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/ScopedMovementUpdate.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "CharacterMovementCompTypes.generated.h"
 
 
@@ -247,7 +246,7 @@ public:
 
 			Ar.SerializeBits(&MoveActionFlags, 1);
 			bOutSuccess &= SerializePackedVector<100, 30>(MoveActionLoc, Ar);
-
+			
 			uint16 Yaw = 0;
 			// Loc and rot for capsule should also be sent here
 			if (Ar.IsSaving())
@@ -568,26 +567,9 @@ struct TStructOpsTypeTraits< FVRConditionalMoveRep2 > : public TStructOpsTypeTra
 */
 struct FScopedMeshBoneUpdateOverrideVR
 {
-	FScopedMeshBoneUpdateOverrideVR(USkeletalMeshComponent* Mesh, EKinematicBonesUpdateToPhysics::Type OverrideSetting)
-		: MeshRef(Mesh)
-	{
-		if (MeshRef)
-		{
-			// Save current state.
-			SavedUpdateSetting = MeshRef->KinematicBonesUpdateType;
-			// Override bone update setting.
-			MeshRef->KinematicBonesUpdateType = OverrideSetting;
-		}
-	}
+	FScopedMeshBoneUpdateOverrideVR(USkeletalMeshComponent* Mesh, EKinematicBonesUpdateToPhysics::Type OverrideSetting);
 
-	~FScopedMeshBoneUpdateOverrideVR()
-	{
-		if (MeshRef)
-		{
-			// Restore bone update flag.
-			MeshRef->KinematicBonesUpdateType = SavedUpdateSetting;
-		}
-	}
+	~FScopedMeshBoneUpdateOverrideVR();
 
 private:
 	USkeletalMeshComponent* MeshRef;

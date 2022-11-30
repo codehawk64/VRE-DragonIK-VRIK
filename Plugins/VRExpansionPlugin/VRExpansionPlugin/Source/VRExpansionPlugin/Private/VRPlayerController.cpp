@@ -3,6 +3,8 @@
 #include "VRPlayerController.h"
 #include "AI/NavigationSystemBase.h"
 #include "VRBaseCharacterMovementComponent.h"
+#include "VRPathFollowingComponent.h"
+//#include "VRBPDatatypes.h"
 #include "Engine/Player.h"
 //#include "Runtime/Engine/Private/EnginePrivate.h"
 
@@ -112,7 +114,7 @@ void AVRPlayerController::PlayerTick(float DeltaTime)
 	}
 }
 
-UVRLocalPlayer::UVRLocalPlayer(const FObjectInitializer& ObjectInitializer)
+UVRLocalPlayer::UVRLocalPlayer(const FObjectInitializer & ObjectInitializer)
 	: Super(ObjectInitializer)
 {
 }

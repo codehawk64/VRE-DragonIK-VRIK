@@ -2,17 +2,14 @@
 
 #pragma once
 #include "CoreMinimal.h"
-//#include "EngineMinimal.h"
-#include "Components/PrimitiveComponent.h"
-
+#include "Engine/NetSerialization.h"
 #include "PhysicsPublic.h"
+//#include "EngineMinimal.h"
+//#include "Components/PrimitiveComponent.h"
+
+#include "PhysicsEngine/ConstraintTypes.h"
 #include "PhysicsEngine/ConstraintDrives.h"
-
-#if PHYSICS_INTERFACE_PHYSX
-//#include "PhysXPublic.h"
-//#include "PhysicsEngine/PhysXSupport.h"
-#endif // WITH_PHYSX
-
+#include "Physics/PhysicsInterfaceCore.h"
 #include "VRBPDatatypes.generated.h"
 
 class UGripMotionControllerComponent;
@@ -82,6 +79,20 @@ enum class EBPVRResultSwitch : uint8
 	OnFailed
 };
 
+// Which method of handling gripping conflict to take with client auth
+UENUM(BlueprintType)
+enum class EVRClientAuthConflictResolutionMode : uint8
+{
+	// Do nothing
+	VRGRIP_CONFLICT_None,
+	// Give to the first to arrive
+	VRGRIP_CONFLICT_First,
+	// Give to the last to arrive
+	VRGRIP_CONFLICT_Last,
+	// Force all ends to drop their grip
+	VRGRIP_CONFLICT_DropAll
+};
+
 // Wasn't needed when final setup was realized
 // Tracked device waist location
 UENUM(Blueprintable)
@@ -117,7 +128,7 @@ public:
 
 	// Tracked parent reference
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Settings")
-		UPrimitiveComponent * TrackedDevice;
+		TObjectPtr<UPrimitiveComponent> TrackedDevice;
 
 	bool IsValid()
 	{
@@ -477,7 +488,7 @@ namespace TransNetQuant
 	static const float MinMaxQDiff = TransNetQuant::MaximumQ - TransNetQuant::MinimumQ;
 }
 
-USTRUCT(/*noexport, */BlueprintType, Category = "VRExpansionLibrary|TransformNetQuantize", meta = (HasNativeMake = "VRExpansionPlugin.VRExpansionFunctionLibrary.MakeTransform_NetQuantize", HasNativeBreak = "VRExpansionPlugin.VRExpansionFunctionLibrary.BreakTransform_NetQuantize"))
+USTRUCT(/*noexport, */BlueprintType, Category = "VRExpansionLibrary|TransformNetQuantize", meta = (HasNativeMake = "/Script/VRExpansionPlugin.VRExpansionFunctionLibrary.MakeTransform_NetQuantize", HasNativeBreak = "/Script/VRExpansionPlugin.VRExpansionFunctionLibrary.BreakTransform_NetQuantize"))
 struct FTransform_NetQuantize : public FTransform
 {
 	GENERATED_USTRUCT_BODY()
@@ -902,7 +913,7 @@ enum class EGripCollisionType : uint8
 	/** Uses Stiffness and damping settings on collision, on no collision uses stiffness values 10x stronger so it has less play. */
 	InteractiveHybridCollisionWithPhysics,
 
-	/** Swaps back and forth between physx grip and a sweep type grip depending on if the held object will be colliding this frame or not. */
+	/** Swaps back and forth between physics grip and a sweep type grip depending on if the held object will be colliding this frame or not. */
 	InteractiveHybridCollisionWithSweep,
 
 	/** Only sweeps movement, will not be offset by geomtry, still pushes physics simulating objects, no weight. */
@@ -1041,7 +1052,6 @@ UENUM(Blueprintable)
 enum class EPhysicsGripConstraintType : uint8
 {
 	AccelerationConstraint = 0,
-	// Not available when not using Physx
 	ForceConstraint = 1
 };
 
@@ -1069,7 +1079,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PhysicsSettings")
 		bool bUsePhysicsSettings;
 
-	// Not available outside of physx, chaos has no force constraints and other plugin physics engines may not as well
+	// Set the constraint force mode
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PhysicsSettings", meta = (editcondition = "bUsePhysicsSettings"))
 		EPhysicsGripConstraintType PhysicsConstraintType;
 
@@ -1259,7 +1269,7 @@ public:
 		bool bHasSecondaryAttachment;
 
 	UPROPERTY(BlueprintReadOnly, Category = "SecondaryGripInfo")
-		USceneComponent * SecondaryAttachment;
+		TObjectPtr<USceneComponent> SecondaryAttachment;
 
 	UPROPERTY(BlueprintReadOnly, Category = "SecondaryGripInfo")
 		FTransform_NetQuantize SecondaryRelativeTransform;
@@ -1378,7 +1388,7 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Settings")
 		EGripTargetType GripTargetType;
 	UPROPERTY(BlueprintReadOnly, Category = "Settings")
-		UObject * GrippedObject;
+		TObjectPtr<UObject> GrippedObject;
 	UPROPERTY(BlueprintReadOnly, Category = "Settings")
 		EGripCollisionType GripCollisionType;
 	UPROPERTY(BlueprintReadWrite, Category = "Settings")
@@ -1444,6 +1454,7 @@ public:
 	
 	// For delta teleport and any future calculations we want to do
 	FTransform LastWorldTransform;
+	bool bSetLastWorldTransform;
 
 	// Need to skip one frame of length check post teleport with constrained objects, the constraint may have not been updated yet.
 	bool bSkipNextTeleportCheck;
@@ -1467,13 +1478,13 @@ public:
 	// If the grip is valid
 	bool IsValid() const
 	{
-		return (!bIsPendingKill && GripID != INVALID_VRGRIP_ID && GrippedObject);
+		return (!bIsPendingKill && GripID != INVALID_VRGRIP_ID && GrippedObject && IsValidChecked(GrippedObject));
 	}
 
 	// Both valid and is not paused
 	bool IsActive() const
 	{
-		return (!bIsPendingKill && GripID != INVALID_VRGRIP_ID && GrippedObject && !bIsPaused);
+		return (!bIsPendingKill && GripID != INVALID_VRGRIP_ID && GrippedObject && IsValidChecked(GrippedObject) && !bIsPaused);
 	}
 
 	// Cached values - since not using a full serialize now the old array state may not contain what i need to diff
@@ -1497,6 +1508,7 @@ public:
 		bIsLocked = false;
 		LastLockedRotation = FQuat::Identity;
 		LastWorldTransform.SetIdentity();
+		bSetLastWorldTransform = false;
 		bSkipNextTeleportCheck = false;
 		bSkipNextConstraintLengthCheck = false;
 		bIsPaused = false;
@@ -1616,6 +1628,7 @@ public:
 		bIsLocked(false),
 		LastLockedRotation(FRotator::ZeroRotator),
 		LastWorldTransform(FTransform::Identity),
+		bSetLastWorldTransform(false),
 		bSkipNextTeleportCheck(false),
 		bSkipNextConstraintLengthCheck(false),
 		CurrentLerpTime(0.f),
@@ -1634,7 +1647,7 @@ struct VREXPANSIONPLUGIN_API FBPGripPair
 public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripPair")
-	UGripMotionControllerComponent * HoldingController;
+		TObjectPtr<UGripMotionControllerComponent> HoldingController;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GripPair")
 	uint8 GripID;
@@ -1765,7 +1778,7 @@ struct VREXPANSIONPLUGIN_API FBPActorPhysicsHandleInformation
 	GENERATED_BODY()
 public:
 	UPROPERTY(BlueprintReadOnly, Category = "Settings")
-		UObject * HandledObject;
+		TObjectPtr<UObject> HandledObject;
 	uint8 GripID;
 	bool bIsPaused;
 
@@ -1780,7 +1793,6 @@ public:
 
 	bool bSetCOM;
 	bool bSkipResettingCom;
-	bool bSkipMassCheck;
 	bool bSkipDeletingKinematicActor;
 	bool bInitiallySetup;
 
@@ -1794,12 +1806,9 @@ public:
 		RootBoneRotation = FTransform::Identity;
 		bSetCOM = false;
 		bSkipResettingCom = false;
-		bSkipMassCheck = false;
 		bSkipDeletingKinematicActor = false;
 		bInitiallySetup = false;
-#if WITH_CHAOS
 		KinActorData2 = nullptr;
-#endif
 	}
 
 	FORCEINLINE bool operator==(const FBPActorGripInformation & Other) const

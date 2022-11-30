@@ -3,49 +3,252 @@
 #include "Misc/CollisionIgnoreSubsystem.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Runtime/Engine/Classes/Kismet/GameplayStatics.h"
+#include "VRGlobalSettings.h"
+
+//#include "Chaos/ParticleHandle.h"
+#include "Chaos/KinematicGeometryParticles.h"
+#include "PhysicsProxy/SingleParticlePhysicsProxy.h"
+#include "PBDRigidsSolver.h"
+
+#include "Chaos/ContactModification.h"
 
 DEFINE_LOG_CATEGORY(VRE_CollisionIgnoreLog);
 
 
+void FCollisionIgnoreSubsystemAsyncCallback::OnContactModification_Internal(Chaos::FCollisionContactModifier& Modifier)
+{
+	const FSimCallbackInputVR* Input = GetConsumerInput_Internal();
+
+	if (Input && Input->bIsInitialized)
+	{
+		for (Chaos::FContactPairModifierIterator ContactIterator = Modifier.Begin(); ContactIterator; ++ContactIterator)
+		{
+			if (ContactIterator.IsValid())
+			{
+				Chaos::TVec2<Chaos::FGeometryParticleHandle*> Pair = ContactIterator->GetParticlePair();
+
+				Chaos::TPBDRigidParticleHandle<Chaos::FReal, 3>* ParticleHandle0 = Pair[0]->CastToRigidParticle();
+				Chaos::TPBDRigidParticleHandle<Chaos::FReal, 3>* ParticleHandle1 = Pair[1]->CastToRigidParticle();
+
+
+				// Chaos has some sort of bug here, the constraint flags are cleared, and for that matter the 
+				// ID0 and ID1 pairs losing collision ignore shouldn't happen as they are still valid always
+				// Don't use contact modification until after we see if the incoming chaos fixes for constraint collision ignore
+				// is resolved.
+				if (ParticleHandle0 && ParticleHandle1)
+				{
+					//bool bHasCollisionFlag = ParticleHandle0->HasCollisionConstraintFlag(Chaos::ECollisionConstraintFlags::CCF_BroadPhaseIgnoreCollisions);
+					//bool bHadCollisionFlag2 = ParticleHandle1->HasCollisionConstraintFlag(Chaos::ECollisionConstraintFlags::CCF_BroadPhaseIgnoreCollisions);
+
+					//if (bHasCollisionFlag && bHadCollisionFlag2)
+					{
+						FChaosParticlePair SearchPair(ParticleHandle0, ParticleHandle1);
+
+						if (Input->ParticlePairs.Contains(SearchPair))
+						{
+							ContactIterator->Disable();
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+void UCollisionIgnoreSubsystem::ConstructInput()
+{
+	if (ContactModifierCallback)
+	{
+		FSimCallbackInputVR* Input = ContactModifierCallback->GetProducerInputData_External();
+		if (Input->bIsInitialized == false)
+		{
+			Input->bIsInitialized = true;
+		}
+
+		// Clear out the pair array
+		Input->Reset();
+
+		for (TPair<FCollisionPrimPair, FCollisionIgnorePairArray>& CollisionPairArray : CollisionTrackedPairs)
+		{
+			for (FCollisionIgnorePair& IgnorePair : CollisionPairArray.Value.PairArray)
+			{
+				if (IgnorePair.Actor1 && IgnorePair.Actor2)
+				{
+					Input->ParticlePairs.Add(FChaosParticlePair(IgnorePair.Actor1->GetHandle_LowLevel()->CastToRigidParticle(), IgnorePair.Actor2->GetHandle_LowLevel()->CastToRigidParticle()));
+				}
+			}
+		}
+	}
+}
+
+
+void UCollisionIgnoreSubsystem::UpdateTimer(bool bChangesWereMade)
+{
+	RemovedPairs.Reset();
+	const UVRGlobalSettings& VRSettings = *GetDefault<UVRGlobalSettings>();
+
+	if (CollisionTrackedPairs.Num() > 0)
+	{
+		if (!UpdateHandle.IsValid())
+		{
+			// Setup the heartbeat on 1htz checks
+			GetWorld()->GetTimerManager().SetTimer(UpdateHandle, this, &UCollisionIgnoreSubsystem::CheckActiveFilters, VRSettings.CollisionIgnoreSubsystemUpdateRate, true, VRSettings.CollisionIgnoreSubsystemUpdateRate);
+
+			if (VRSettings.bUseCollisionModificationForCollisionIgnore && !ContactModifierCallback)
+			{
+				if (UWorld* World = GetWorld())
+				{
+					if (FPhysScene* PhysScene = World->GetPhysicsScene())
+					{
+						// Register a callback
+						ContactModifierCallback = PhysScene->GetSolver()->CreateAndRegisterSimCallbackObject_External<FCollisionIgnoreSubsystemAsyncCallback>(/*true*/);
+					}
+				}
+			}
+		}
+
+		// Need to only add input when changes are made
+		if (VRSettings.bUseCollisionModificationForCollisionIgnore && ContactModifierCallback && bChangesWereMade)
+		{
+			ConstructInput();
+		}
+	}
+	else if (UpdateHandle.IsValid())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(UpdateHandle);
+
+		if (VRSettings.bUseCollisionModificationForCollisionIgnore && ContactModifierCallback)
+		{
+			//FSimCallbackInputVR* Input = ContactModifierCallback->GetProducerInputData_External();
+			//Input->bIsInitialized = false;
+
+			if (UWorld* World = GetWorld())
+			{
+				if (FPhysScene* PhysScene = World->GetPhysicsScene())
+				{
+					// UnRegister a callback
+					PhysScene->GetSolver()->UnregisterAndFreeSimCallbackObject_External(ContactModifierCallback);
+					ContactModifierCallback = nullptr;
+				}
+			}
+		}
+	}
+}
+
 void UCollisionIgnoreSubsystem::CheckActiveFilters()
 {
+	bool bMadeChanges = false;
 
-	bool bDoubleCheckPairs = false;
-	for (const TPair<FCollisionPrimPair, FCollisionIgnorePairArray>& KeyPair : CollisionTrackedPairs)
+	for (TPair<FCollisionPrimPair, FCollisionIgnorePairArray>& KeyPair : CollisionTrackedPairs)
 	{
 		// First check for invalid primitives
-		if (!KeyPair.Key.Prim1.IsValid() || !KeyPair.Key.Prim2.IsValid() /*|| KeyPair.Key.Prim1->IsPendingKill() || KeyPair.Key.Prim2->IsPendingKill()*/)
+		if (!IsValid(KeyPair.Key.Prim1) || !IsValid(KeyPair.Key.Prim2))
 		{
 			// If we don't have a map element for this pair, then add it now
 			if (!RemovedPairs.Contains(KeyPair.Key))
 			{
 				RemovedPairs.Add(KeyPair.Key, KeyPair.Value);
+				bMadeChanges = true;
 			}
-			/*else
-			{
-				RemovedPairs[KeyPair.Key].PairArray.AddUnique(KeyPair.Value);
-			}*/
 
 			continue; // skip remaining checks as we have invalid primitives anyway
 		}
 
+		// Skip this section but leave the code intact in case i need it eventually
+#if false
 		// Now check for lost physics handles
 		// Implement later
-		/*for (const FCollisionIgnorePair& IgnorePair : KeyPair.Value.PairArray)
+		if (FPhysScene* PhysScene = KeyPair.Key.Prim1->GetWorld()->GetPhysicsScene())
 		{
-			if (
-				(!IgnorePair.Actor1.IsValid() || !FPhysicsInterface::IsValid(IgnorePair.Actor1)) ||
-				(!IgnorePair.Actor2.IsValid() || !FPhysicsInterface::IsValid(IgnorePair.Actor2))
-				)
-			{
-				// Reinit the ignoring, one of the handles got lost
-				// TODO
-				//
-				InitiateIgnore();
+			Chaos::FIgnoreCollisionManager& IgnoreCollisionManager = PhysScene->GetSolver()->GetEvolution()->GetBroadPhase().GetIgnoreCollisionManager();
+			FPhysicsCommand::ExecuteWrite(PhysScene, [&]()
+				{
+					using namespace Chaos;
+					for (int i = KeyPair.Value.PairArray.Num() - 1; i >= 0; i--)
+					{
+						FPhysicsActorHandle hand1 = KeyPair.Value.PairArray[i].Actor1;
+						FPhysicsActorHandle hand2 = KeyPair.Value.PairArray[i].Actor2;
 
-				bDoubleCheckPairs = true;
+						/*if (bIgnoreCollision)
+						{
+							if (!IgnoreCollisionManager.IgnoresCollision(ID0, ID1))
+							{
+								TPBDRigidParticleHandle<FReal, 3>* ParticleHandle0 = ApplicableBodies[i].BInstance->ActorHandle->GetHandle_LowLevel()->CastToRigidParticle();
+								TPBDRigidParticleHandle<FReal, 3>* ParticleHandle1 = ApplicableBodies2[j].BInstance->ActorHandle->GetHandle_LowLevel()->CastToRigidParticle();
+
+								if (ParticleHandle0 && ParticleHandle1)
+								{
+									ParticleHandle0->AddCollisionConstraintFlag(Chaos::ECollisionConstraintFlags::CCF_BroadPhaseIgnoreCollisions);
+									IgnoreCollisionManager.AddIgnoreCollisionsFor(ID0, ID1);
+
+									ParticleHandle1->AddCollisionConstraintFlag(Chaos::ECollisionConstraintFlags::CCF_BroadPhaseIgnoreCollisions);
+									IgnoreCollisionManager.AddIgnoreCollisionsFor(ID1, ID0);
+
+								}
+							}
+						}*/
+
+						if (
+							(!KeyPair.Value.PairArray[i].Actor1 || !FPhysicsInterface::IsValid(KeyPair.Value.PairArray[i].Actor1)) ||
+							(!KeyPair.Value.PairArray[i].Actor2 || !FPhysicsInterface::IsValid(KeyPair.Value.PairArray[i].Actor2))
+							)
+						{
+
+							// We will either be re-initing or deleting from here so it will always involve changes
+							bMadeChanges = true;
+
+							FName Bone1 = KeyPair.Value.PairArray[i].BoneName1;
+							FName Bone2 = KeyPair.Value.PairArray[i].BoneName2;
+
+							FBodyInstance* Inst1 = KeyPair.Key.Prim1->GetBodyInstance(Bone1);
+							FBodyInstance* Inst2 = KeyPair.Key.Prim2->GetBodyInstance(Bone2);
+
+							if (Inst1 && Inst2)
+							{
+								// We still have the bones available, lets go ahead and re-init for them
+								KeyPair.Value.PairArray.RemoveAt(i);
+								SetComponentCollisionIgnoreState(false, false, KeyPair.Key.Prim1, Bone1, KeyPair.Key.Prim2, Bone2, true, false);
+							}
+							else
+							{
+								// Its not still available, lets remove the pair.
+								KeyPair.Value.PairArray.RemoveAt(i);
+							}
+						}
+						else
+						{
+							Chaos::FUniqueIdx ID0 = KeyPair.Value.PairArray[i].Actor1->GetParticle_LowLevel()->UniqueIdx();
+							Chaos::FUniqueIdx ID1 = KeyPair.Value.PairArray[i].Actor2->GetParticle_LowLevel()->UniqueIdx();
+
+							if (!IgnoreCollisionManager.IgnoresCollision(ID0, ID1))
+							{
+								TPBDRigidParticleHandle<FReal, 3>* ParticleHandle0 = KeyPair.Value.PairArray[i].Actor1->GetHandle_LowLevel()->CastToRigidParticle();
+								TPBDRigidParticleHandle<FReal, 3>* ParticleHandle1 = KeyPair.Value.PairArray[i].Actor2->GetHandle_LowLevel()->CastToRigidParticle();
+
+								if (ParticleHandle0 && ParticleHandle1)
+								{
+									ParticleHandle0->AddCollisionConstraintFlag(Chaos::ECollisionConstraintFlags::CCF_BroadPhaseIgnoreCollisions);
+									IgnoreCollisionManager.AddIgnoreCollisionsFor(ID0, ID1);
+
+									ParticleHandle1->AddCollisionConstraintFlag(Chaos::ECollisionConstraintFlags::CCF_BroadPhaseIgnoreCollisions);
+									IgnoreCollisionManager.AddIgnoreCollisionsFor(ID1, ID0);
+								}
+							}
+						}
+					}
+				});
+		}
+#endif
+
+		// If there are no pairs left
+		if (KeyPair.Value.PairArray.Num() < 1)
+		{
+			// Try and remove it, chaos should be cleaning up the ignore setups
+			if (!RemovedPairs.Contains(KeyPair.Key))
+			{
+				RemovedPairs.Add(KeyPair.Key, KeyPair.Value);
 			}
-		}*/
+		}
 	}
 
 /*#if WITH_CHAOS
@@ -53,62 +256,16 @@ void UCollisionIgnoreSubsystem::CheckActiveFilters()
 	{
 		Chaos::FIgnoreCollisionManager& IgnoreCollisionManager = PhysScene2->GetSolver()->GetEvolution()->GetBroadPhase().GetIgnoreCollisionManager();
 		int32 ExternalTimestamp = PhysScene2->GetSolver()->GetMarshallingManager().GetExternalTimestamp_External();
-		Chaos::FIgnoreCollisionManager::FPendingMap& ActivationMap = IgnoreCollisionManager.GetPendingDeactivationsForGameThread(ExternalTimestamp)
-		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, FString::Printf(TEXT("Pending deactivation Chaos: %i"), ActivationMap.Num()));
+
+		Chaos::FIgnoreCollisionManager::FPendingMap IgnoreSet = IgnoreCollisionManager.GetPendingActivationsForGameThread(ExternalTimestamp);
+		Chaos::FIgnoreCollisionManager::FDeactivationSet DeactiveSet = IgnoreCollisionManager.GetPendingDeactivationsForGameThread(ExternalTimestamp);
+		//Chaos::FIgnoreCollisionManager::FDeactivationSet IgnoreSet = 
+		
+		// Prints out the list of items currently being re-activated after one of their pairs died.
+		// Chaos automatically cleans up here, I don't need to do anything.
+		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, FString::Printf(TEXT("Pending activate: %i - Pending deativate: %i"), IgnoreSet.Num(), DeactiveSet.Num()));
 	}
 #endif*/
-
-	if (RemovedPairs.Num() > 0 || bDoubleCheckPairs == true)
-	{
-		if (FPhysScene* PhysScene = GetWorld()->GetPhysicsScene())
-		{
-#if WITH_CHAOS
-			// I think chaos may handle this itself here, i need to double check
-
-#elif PHYSICS_INTERFACE_PHYSX
-			if (PxScene* PScene = PhysScene->GetPxScene())
-			{
-				if (FCCDContactModifyCallbackVR* ContactCallback = (FCCDContactModifyCallbackVR*)PScene->getCCDContactModifyCallback())
-				{
-					FRWScopeLock(ContactCallback->RWAccessLock, FRWScopeLockType::SLT_Write);
-
-					for (int i = ContactCallback->ContactsToIgnore.Num() - 1; i >= 0; --i)
-					{
-						if (
-							(!ContactCallback->ContactsToIgnore[i].Prim1.IsValid() || !ContactCallback->ContactsToIgnore[i].Prim2.IsValid()) ||
-							(!ContactCallback->ContactsToIgnore[i].Actor1.IsValid() || !FPhysicsInterface::IsValid(ContactCallback->ContactsToIgnore[i].Actor1)) ||
-							(!ContactCallback->ContactsToIgnore[i].Actor2.IsValid() || !FPhysicsInterface::IsValid(ContactCallback->ContactsToIgnore[i].Actor2))
-							)
-						{
-							ContactCallback->ContactsToIgnore.RemoveAt(i);
-						}
-					}
-
-					//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, FString::Printf(TEXT("CCD IGNORE: %i"), ContactCallback->ContactsToIgnore.Num()));
-				}
-
-				if (FContactModifyCallbackVR* ContactCallback = (FContactModifyCallbackVR*)PScene->getContactModifyCallback())
-				{
-					FRWScopeLock(ContactCallback->RWAccessLock, FRWScopeLockType::SLT_Write);
-
-					for (int i = ContactCallback->ContactsToIgnore.Num() - 1; i >= 0; --i)
-					{
-						if (
-							(!ContactCallback->ContactsToIgnore[i].Prim1.IsValid() || !ContactCallback->ContactsToIgnore[i].Prim2.IsValid()) ||
-							(!ContactCallback->ContactsToIgnore[i].Actor1.IsValid() || !FPhysicsInterface::IsValid(ContactCallback->ContactsToIgnore[i].Actor1)) ||
-							(!ContactCallback->ContactsToIgnore[i].Actor2.IsValid() || !FPhysicsInterface::IsValid(ContactCallback->ContactsToIgnore[i].Actor2))
-							)
-						{
-							ContactCallback->ContactsToIgnore.RemoveAt(i);
-						}
-					}
-
-					//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, FString::Printf(TEXT("IGNORE: %i"), ContactCallback->ContactsToIgnore.Num()));
-				}
-			}
-#endif
-		}
-	}
 
 	for (const TPair<FCollisionPrimPair, FCollisionIgnorePairArray>& KeyPair : RemovedPairs)
 	{
@@ -119,9 +276,7 @@ void UCollisionIgnoreSubsystem::CheckActiveFilters()
 		}
 	}
 
-	//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, FString::Printf(TEXT("NumIgnored Actors: %i"), CollisionTrackedPairs.Num()));
-
-	UpdateTimer();
+	UpdateTimer(bMadeChanges);
 }
 
 void UCollisionIgnoreSubsystem::RemoveComponentCollisionIgnoreState(UPrimitiveComponent* Prim1)
@@ -129,6 +284,9 @@ void UCollisionIgnoreSubsystem::RemoveComponentCollisionIgnoreState(UPrimitiveCo
 
 	if (!Prim1)
 		return;
+	
+
+	TMap<FCollisionPrimPair, FCollisionIgnorePairArray> PairsToRemove;
 
 	for (const TPair<FCollisionPrimPair, FCollisionIgnorePairArray>& KeyPair : CollisionTrackedPairs)
 	{
@@ -136,63 +294,34 @@ void UCollisionIgnoreSubsystem::RemoveComponentCollisionIgnoreState(UPrimitiveCo
 		if (KeyPair.Key.Prim1 == Prim1 || KeyPair.Key.Prim2 == Prim1)
 		{
 			// If we don't have a map element for this pair, then add it now
-			if (!RemovedPairs.Contains(KeyPair.Key))
+			if (!PairsToRemove.Contains(KeyPair.Key))
 			{
-				RemovedPairs.Add(KeyPair.Key, KeyPair.Value);
+				PairsToRemove.Add(KeyPair.Key, KeyPair.Value);
 			}
 		}
 	}
+	
 
-	if (RemovedPairs.Num() > 0)
-	{
-		if (FPhysScene* PhysScene = GetWorld()->GetPhysicsScene())
-		{
-#if WITH_CHAOS
-			// I think chaos may handle this itself here, i need to double check
-
-#elif PHYSICS_INTERFACE_PHYSX
-			if (PxScene* PScene = PhysScene->GetPxScene())
-			{
-				if (FCCDContactModifyCallbackVR* ContactCallback = (FCCDContactModifyCallbackVR*)PScene->getCCDContactModifyCallback())
-				{
-					FRWScopeLock(ContactCallback->RWAccessLock, FRWScopeLockType::SLT_Write);
-
-					for (int i = ContactCallback->ContactsToIgnore.Num() - 1; i >= 0; --i)
-					{
-						if (ContactCallback->ContactsToIgnore[i].Prim1 == Prim1 || ContactCallback->ContactsToIgnore[i].Prim2 == Prim1)
-						{
-							ContactCallback->ContactsToIgnore.RemoveAt(i);
-						}
-					}
-				}
-
-				if (FContactModifyCallbackVR* ContactCallback = (FContactModifyCallbackVR*)PScene->getContactModifyCallback())
-				{
-					FRWScopeLock(ContactCallback->RWAccessLock, FRWScopeLockType::SLT_Write);
-
-					for (int i = ContactCallback->ContactsToIgnore.Num() - 1; i >= 0; --i)
-					{
-						if (ContactCallback->ContactsToIgnore[i].Prim1 == Prim1 || ContactCallback->ContactsToIgnore[i].Prim2 == Prim1)
-						{
-							ContactCallback->ContactsToIgnore.RemoveAt(i);
-						}
-					}
-				}
-			}
-#endif
-		}
-	}
-
-	for (const TPair<FCollisionPrimPair, FCollisionIgnorePairArray>& KeyPair : RemovedPairs)
+	for (const TPair<FCollisionPrimPair, FCollisionIgnorePairArray>& KeyPair : PairsToRemove)
 	{
 		if (CollisionTrackedPairs.Contains(KeyPair.Key))
 		{
-			CollisionTrackedPairs[KeyPair.Key].PairArray.Empty();
-			CollisionTrackedPairs.Remove(KeyPair.Key);
+			for (const FCollisionIgnorePair& newIgnorePair : KeyPair.Value.PairArray)
+			{
+				// Clear out current ignores
+				SetComponentCollisionIgnoreState(false, false, KeyPair.Key.Prim1, newIgnorePair.BoneName1, KeyPair.Key.Prim2, newIgnorePair.BoneName2, false, false);
+			}
+
+			/*if (CollisionTrackedPairs.Contains(KeyPair.Key))
+			{
+				// Ensure we are empty
+				CollisionTrackedPairs[KeyPair.Key].PairArray.Empty();
+				CollisionTrackedPairs.Remove(KeyPair.Key);
+			}*/
 		}
 	}
 
-	UpdateTimer();
+	UpdateTimer(true);
 }
 
 bool UCollisionIgnoreSubsystem::IsComponentIgnoringCollision(UPrimitiveComponent* Prim1)
@@ -213,9 +342,37 @@ bool UCollisionIgnoreSubsystem::IsComponentIgnoringCollision(UPrimitiveComponent
 	return false;
 }
 
+bool UCollisionIgnoreSubsystem::AreComponentsIgnoringCollisions(UPrimitiveComponent* Prim1, UPrimitiveComponent* Prim2)
+{
+
+	if (!Prim1 || !Prim2)
+		return false;
+
+	TSet<FCollisionPrimPair> CurrentKeys;
+	int numKeys = CollisionTrackedPairs.GetKeys(CurrentKeys);
+
+	FCollisionPrimPair SearchPair;
+	SearchPair.Prim1 = Prim1;
+	SearchPair.Prim2 = Prim2;
+
+	// This checks if we exist already as well as provides an index
+	if (FCollisionPrimPair* ExistingPair = CurrentKeys.Find(SearchPair))
+	{
+		// These components are ignoring collision
+		return true;
+	}
+
+	return false;
+}
+
 void UCollisionIgnoreSubsystem::InitiateIgnore()
 {
 
+}
+
+bool UCollisionIgnoreSubsystem::HasCollisionIgnorePairs()
+{
+	return CollisionTrackedPairs.Num() > 0;
 }
 
 void UCollisionIgnoreSubsystem::SetComponentCollisionIgnoreState(bool bIterateChildren1, bool bIterateChildren2, UPrimitiveComponent* Prim1, FName OptionalBoneName1, UPrimitiveComponent* Prim2, FName OptionalBoneName2, bool bIgnoreCollision, bool bCheckFilters)
@@ -223,6 +380,12 @@ void UCollisionIgnoreSubsystem::SetComponentCollisionIgnoreState(bool bIterateCh
 	if (!Prim1 || !Prim2)
 	{
 		UE_LOG(VRE_CollisionIgnoreLog, Error, TEXT("Set Objects Ignore Collision called with invalid object(s)!!"));
+		return;
+	}
+
+	if (Prim1->GetCollisionEnabled() == ECollisionEnabled::NoCollision || Prim2->GetCollisionEnabled() == ECollisionEnabled::NoCollision)
+	{
+		UE_LOG(VRE_CollisionIgnoreLog, Error, TEXT("Set Objects Ignore Collision called with one or more objects with no collision!! %s, %s"), *Prim1->GetName(), *Prim2->GetName());
 		return;
 	}
 
@@ -299,7 +462,7 @@ void UCollisionIgnoreSubsystem::SetComponentCollisionIgnoreState(bool bIterateCh
 	else
 	{
 		FBodyInstance* Inst1 = Prim2->GetBodyInstance(OptionalBoneName2);
-		if (Inst1)
+		if (Inst1) 
 		{
 			ApplicableBodies2.Add(BodyPairStore(Inst1, OptionalBoneName2));
 		}
@@ -336,21 +499,17 @@ void UCollisionIgnoreSubsystem::SetComponentCollisionIgnoreState(bool bIterateCh
 			{
 				if (FPhysScene* PhysScene = Prim1->GetWorld()->GetPhysicsScene())
 				{
-					FContactModBodyInstancePair newContactPair;
-					newContactPair.Actor1 = ApplicableBodies[i].BInstance->ActorHandle;
-					newContactPair.Actor2 = ApplicableBodies2[j].BInstance->ActorHandle;
-					newContactPair.Prim1 = Prim1;
-					newContactPair.Prim2 = Prim2;
-
 					FCollisionIgnorePair newIgnorePair;
 					newIgnorePair.Actor1 = ApplicableBodies[i].BInstance->ActorHandle;
 					newIgnorePair.BoneName1 = ApplicableBodies[i].BName;
 					newIgnorePair.Actor2 = ApplicableBodies2[j].BInstance->ActorHandle;
 					newIgnorePair.BoneName2 = ApplicableBodies2[j].BName;
 
-#if WITH_CHAOS
 					Chaos::FUniqueIdx ID0 = ApplicableBodies[i].BInstance->ActorHandle->GetParticle_LowLevel()->UniqueIdx();
 					Chaos::FUniqueIdx ID1 = ApplicableBodies2[j].BInstance->ActorHandle->GetParticle_LowLevel()->UniqueIdx();
+
+					auto* pHandle1 = ApplicableBodies[i].BInstance->ActorHandle->GetParticle_LowLevel();
+					auto* pHandle2 = ApplicableBodies[j].BInstance->ActorHandle->GetParticle_LowLevel();
 
 					Chaos::FIgnoreCollisionManager& IgnoreCollisionManager = PhysScene->GetSolver()->GetEvolution()->GetBroadPhase().GetIgnoreCollisionManager();
 
@@ -361,28 +520,43 @@ void UCollisionIgnoreSubsystem::SetComponentCollisionIgnoreState(bool bIterateCh
 							if (bIgnoreCollision)
 							{
 								if (!IgnoreCollisionManager.IgnoresCollision(ID0, ID1))
-								{
-									TPBDRigidParticleHandle<FReal, 3>* ParticleHandle0 = ApplicableBodies[i].BInstance->ActorHandle->GetHandle_LowLevel()->CastToRigidParticle();
-									TPBDRigidParticleHandle<FReal, 3>* ParticleHandle1 = ApplicableBodies2[j].BInstance->ActorHandle->GetHandle_LowLevel()->CastToRigidParticle();
-
-									if (ParticleHandle0 && ParticleHandle1)
+								{							
+									if (pHandle1 && pHandle2)
 									{
-										ParticleHandle0->AddCollisionConstraintFlag(Chaos::ECollisionConstraintFlags::CCF_BroadPhaseIgnoreCollisions);
-										IgnoreCollisionManager.AddIgnoreCollisionsFor(ID0, ID1);
+										/*TPBDRigidParticleHandle<FReal, 3>*/auto* ParticleHandle0 = pHandle1->CastToRigidParticle();
+										/*TPBDRigidParticleHandle<FReal, 3>*/ auto * ParticleHandle1 = pHandle2->CastToRigidParticle();
 
-										ParticleHandle1->AddCollisionConstraintFlag(Chaos::ECollisionConstraintFlags::CCF_BroadPhaseIgnoreCollisions);
-										IgnoreCollisionManager.AddIgnoreCollisionsFor(ID1, ID0);
-
-										if (CollisionTrackedPairs.Contains(newPrimPair))
+										if (ParticleHandle0 && ParticleHandle1)
 										{
-											CollisionTrackedPairs[newPrimPair].PairArray.AddUnique(newIgnorePair);
+											ParticleHandle0->AddCollisionConstraintFlag(Chaos::ECollisionConstraintFlags::CCF_BroadPhaseIgnoreCollisions);
+											IgnoreCollisionManager.AddIgnoreCollisionsFor(ID0, ID1);
+
+											ParticleHandle1->AddCollisionConstraintFlag(Chaos::ECollisionConstraintFlags::CCF_BroadPhaseIgnoreCollisions);
+											IgnoreCollisionManager.AddIgnoreCollisionsFor(ID1, ID0);
+
+
+											TSet<FCollisionPrimPair> CurrentKeys;
+											int numKeys = CollisionTrackedPairs.GetKeys(CurrentKeys);
+
+											// This checks if we exist already as well as provides an index
+											if (FCollisionPrimPair* CurrentPair = CurrentKeys.Find(newPrimPair))
+											{
+												// Check if the current one has the same primitive ordering as the new check
+												if (CurrentPair->Prim1 != newPrimPair.Prim1)
+												{
+													// If not then lets flip the elements around in order to match it
+													newIgnorePair.FlipElements();
+												}
+
+												CollisionTrackedPairs[newPrimPair].PairArray.AddUnique(newIgnorePair);
+											}
+
+											/*if (ApplicableBodies[i].BInstance->bContactModification != bIgnoreCollision)
+												ApplicableBodies[i].BInstance->SetContactModification(true);
+
+											if (ApplicableBodies2[j].BInstance->bContactModification != bIgnoreCollision)
+												ApplicableBodies2[j].BInstance->SetContactModification(true);*/
 										}
-
-										/*if (ApplicableBodies[i].BInstance->bContactModification != bIgnoreCollision)
-											ApplicableBodies[i].BInstance->SetContactModification(true);
-
-										if (ApplicableBodies2[j].BInstance->bContactModification != bIgnoreCollision)
-											ApplicableBodies2[j].BInstance->SetContactModification(true);*/
 									}
 								}
 							}
@@ -418,123 +592,17 @@ void UCollisionIgnoreSubsystem::SetComponentCollisionIgnoreState(bool bIterateCh
 									// If we don't have a map element for this pair, then add it now
 									if (!RemovedPairs.Contains(newPrimPair))
 									{
-										RemovedPairs.Add(newPrimPair, FCollisionIgnorePairArray >());
+										RemovedPairs.Add(newPrimPair, FCollisionIgnorePairArray());
 									}
 									RemovedPairs[newPrimPair].PairArray.AddUnique(newIgnorePair);
 								}
 							}
 						});
-
-#elif PHYSICS_INTERFACE_PHYSX
-					if (PxScene* PScene = PhysScene->GetPxScene())
-					{
-						if (FCCDContactModifyCallbackVR* ContactCallback = (FCCDContactModifyCallbackVR*)PScene->getCCDContactModifyCallback())
-						{
-							FRWScopeLock(ContactCallback->RWAccessLock, FRWScopeLockType::SLT_Write);
-
-							if (bIgnoreCollision)
-							{
-								if (CollisionTrackedPairs.Contains(newPrimPair))
-								{
-									CollisionTrackedPairs[newPrimPair].PairArray.AddUnique(newIgnorePair);
-								}
-
-								ContactCallback->ContactsToIgnore.AddUnique(newContactPair);
-
-								if (ApplicableBodies[i].BInstance->bContactModification != bIgnoreCollision)
-									ApplicableBodies[i].BInstance->SetContactModification(true);
-
-								if (ApplicableBodies2[j].BInstance->bContactModification != bIgnoreCollision)
-									ApplicableBodies2[j].BInstance->SetContactModification(true);
-							}
-							else
-							{
-								bool bHadPrimPair = false;
-
-								ContactCallback->ContactsToIgnore.Remove(newContactPair);
-								if (CollisionTrackedPairs.Contains(newPrimPair))
-								{
-									if (CollisionTrackedPairs[newPrimPair].PairArray.Contains(newIgnorePair))
-									{
-										bHadPrimPair = true;
-										CollisionTrackedPairs[newPrimPair].PairArray.Remove(newIgnorePair);
-									}
-
-									if (CollisionTrackedPairs[newPrimPair].PairArray.Num() < 1)
-									{
-										CollisionTrackedPairs.Remove(newPrimPair);
-									}
-								}
-
-								// If we don't have a map element for this pair, then add it now
-								if (bHadPrimPair)
-								{
-									if (!RemovedPairs.Contains(newPrimPair))
-									{
-										RemovedPairs.Add(newPrimPair, FCollisionIgnorePairArray());
-									}
-									RemovedPairs[newPrimPair].PairArray.AddUnique(newIgnorePair);
-								}
-							}
-						}
-
-						if (FContactModifyCallbackVR* ContactCallback = (FContactModifyCallbackVR*)PScene->getContactModifyCallback())
-						{
-							FRWScopeLock(ContactCallback->RWAccessLock, FRWScopeLockType::SLT_Write);
-
-							if (bIgnoreCollision)
-							{
-								ContactCallback->ContactsToIgnore.AddUnique(newContactPair);
-
-								if (CollisionTrackedPairs.Contains(newPrimPair))
-								{
-									CollisionTrackedPairs[newPrimPair].PairArray.AddUnique(newIgnorePair);
-								}
-
-								if (ApplicableBodies[i].BInstance->bContactModification != bIgnoreCollision)
-									ApplicableBodies[i].BInstance->SetContactModification(true);
-
-								if (ApplicableBodies2[j].BInstance->bContactModification != bIgnoreCollision)
-									ApplicableBodies2[j].BInstance->SetContactModification(true);
-							}
-							else
-							{
-
-								bool bHadPrimPair = false;
-
-								ContactCallback->ContactsToIgnore.Remove(newContactPair);
-								if (CollisionTrackedPairs.Contains(newPrimPair))
-								{
-									if (CollisionTrackedPairs[newPrimPair].PairArray.Contains(newIgnorePair))
-									{
-										bHadPrimPair = true;
-										CollisionTrackedPairs[newPrimPair].PairArray.Remove(newIgnorePair);
-									}
-
-									if (CollisionTrackedPairs[newPrimPair].PairArray.Num() < 1)
-									{
-										CollisionTrackedPairs.Remove(newPrimPair);
-									}
-								}
-
-								// If we don't have a map element for this pair, then add it now
-								if (bHadPrimPair)
-								{
-									if (!RemovedPairs.Contains(newPrimPair))
-									{
-										RemovedPairs.Add(newPrimPair, FCollisionIgnorePairArray());
-									}
-									RemovedPairs[newPrimPair].PairArray.AddUnique(newIgnorePair);
-								}
-							}
-						}
-					}
-#endif
 				}
 			}
 		}
 	}
 
 	// Update our timer state
-	UpdateTimer();
+	UpdateTimer(true);
 }

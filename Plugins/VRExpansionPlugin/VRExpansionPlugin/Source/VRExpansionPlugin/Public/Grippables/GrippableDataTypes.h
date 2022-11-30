@@ -2,7 +2,8 @@
 
 #pragma once
 #include "CoreMinimal.h"
-#include "Engine/EngineTypes.h"
+//#include "Engine/EngineTypes.h"
+#include "Engine/ReplicatedState.h"
 #include "GrippableDataTypes.generated.h"
 
 // A version of the attachment structure that include welding data
@@ -16,23 +17,9 @@ public:
 	UPROPERTY()
 	bool bIsWelded;
 
-	bool NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess)
-	{
-		// Our additional weld bit is here
-		Ar.SerializeBits(&bIsWelded, 1);
-		Ar << AttachParent;
-		LocationOffset.NetSerialize(Ar, Map, bOutSuccess);
-		RelativeScale3D.NetSerialize(Ar, Map, bOutSuccess);
-		RotationOffset.SerializeCompressedShort(Ar);
-		Ar << AttachSocket;
-		Ar << AttachComponent;
-		return true;
-	}
+	bool NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess);
 
-	FRepAttachmentWithWeld()
-	{
-		bIsWelded = false;
-	}
+	FRepAttachmentWithWeld();
 };
 
 template<>

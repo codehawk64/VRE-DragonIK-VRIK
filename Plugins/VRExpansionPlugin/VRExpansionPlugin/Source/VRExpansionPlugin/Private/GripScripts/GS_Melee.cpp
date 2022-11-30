@@ -2,12 +2,16 @@
 
 #include "GripScripts/GS_Melee.h"
 #include "VRGripInterface.h"
+#include "GameFramework/WorldSettings.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "PhysicsEngine/PhysicsConstraintActor.h"
 #include "PhysicsEngine/PhysicsConstraintComponent.h"
 #include "VRExpansionFunctionLibrary.h"
+#include "GripMotionControllerComponent.h"
 #include "VRGlobalSettings.h"
 #include "DrawDebugHelpers.h"
+#include "Components/PrimitiveComponent.h"
+#include "GameFramework/Actor.h"
 #include "GripMotionControllerComponent.h"
 
 UGS_Melee::UGS_Melee(const FObjectInitializer& ObjectInitializer) :
@@ -36,7 +40,6 @@ UGS_Melee::UGS_Melee(const FObjectInitializer& ObjectInitializer) :
 	bCanEverTick = false;
 	bAlwaysTickPenetration = false;
 	COMType = EVRMeleeComType::VRPMELEECOM_BetweenHands;
-	bSkipGripMassChecks = true;
 	bOnlyPenetrateWithTwoHands = false;
 }
 
@@ -542,7 +545,7 @@ void UGS_Melee::OnBeginPlay_Implementation(UObject * CallingOwner)
 			{
 				if (UPrimitiveComponent * PrimComp = Cast<UPrimitiveComponent>(ChildComp))
 				{
-					Found->TargetComponent = TWeakObjectPtr<UPrimitiveComponent>(PrimComp);
+					Found->TargetComponent = TObjectPtr<UPrimitiveComponent>(PrimComp);
 					//PrimComp->OnComponentHit.AddDynamic(this, &UGS_Melee::OnLodgeHitCallback);
 				}
 
@@ -575,8 +578,17 @@ void UGS_Melee::OnEndPlay_Implementation(const EEndPlayReason::Type EndPlayReaso
 
 void UGS_Melee::OnLodgeHitCallback(AActor* SelfActor, AActor* OtherActor, FVector NormalImpulse, const FHitResult& Hit)
 {
-	if (!bCheckLodge || !bIsActive || bIsLodged || OtherActor == SelfActor)
+	if (!Hit.GetComponent())
 		return;
+
+	if (!bCheckLodge || !bIsActive || bIsLodged || OtherActor == SelfActor)
+	{
+		if (bAlwaysTickPenetration || bIsHeld)
+		{
+			OnMeleeInvalidHit.Broadcast(OtherActor, Hit.GetComponent(), NormalImpulse, Hit);
+		}
+		return;
+	}
 
 	// Escape out if we are not held and are not set to always tick penetration
 	if (!bAlwaysTickPenetration && !bIsHeld)
@@ -605,7 +617,10 @@ void UGS_Melee::OnLodgeHitCallback(AActor* SelfActor, AActor* OtherActor, FVecto
 	{
 		// Reject bad surface types
 		if (!Hit.PhysMaterial.IsValid())
+		{
+			OnMeleeInvalidHit.Broadcast(OtherActor, Hit.GetComponent(), NormalImpulse, Hit);
 			return;
+		}
 
 		EPhysicalSurface PhysSurfaceType = Hit.PhysMaterial->SurfaceType;
 		int32 IndexOfSurface = AllowedPenetrationSurfaceTypes.IndexOfByPredicate([&PhysSurfaceType](const FBPHitSurfaceProperties& Entry) { return Entry.SurfaceType == PhysSurfaceType; });
@@ -641,20 +656,18 @@ void UGS_Melee::OnLodgeHitCallback(AActor* SelfActor, AActor* OtherActor, FVecto
 
 	bool bHadFirstHit = false;
 	FBPLodgeComponentInfo FirstHitComp;
-	FHitResult FirstHitResult;
-	FVector FirstHitImpulse;
 
 	float HitNormalImpulse = NormalImpulse.SizeSquared();
 
 	for(FBPLodgeComponentInfo &LodgeData : PenetrationNotifierComponents)
 	{
-		if (!LodgeData.TargetComponent.IsValid())
+		if (!IsValid(LodgeData.TargetComponent))
 			continue;
 
 		FBox LodgeLocalBox = LodgeData.TargetComponent->CalcLocalBounds().GetBox();
 		FVector LocalHit = LodgeData.TargetComponent->GetComponentTransform().InverseTransformPosition(Hit.ImpactPoint);
 		//FBox LodgeBox = LodgeData.TargetComponent->Bounds.GetBox();
-		if (LodgeData.TargetComponent.IsValid() && LodgeLocalBox.IsInsideOrOn(LocalHit))//LodgeBox.IsInsideOrOn(Hit.ImpactPoint))
+		if (IsValid(LodgeData.TargetComponent) && LodgeLocalBox.IsInsideOrOn(LocalHit))//LodgeBox.IsInsideOrOn(Hit.ImpactPoint))
 		{
 			FVector ForwardVec = LodgeData.TargetComponent->GetForwardVector();
 			
@@ -680,15 +693,17 @@ void UGS_Melee::OnLodgeHitCallback(AActor* SelfActor, AActor* OtherActor, FVecto
 			{
 				bHadFirstHit = true;
 				FirstHitComp = LodgeData;
-				FirstHitResult = Hit;
-				FirstHitImpulse = NormalImpulse;
 			}
 		}
 	}
 
 	if (bHadFirstHit)
 	{
-		OnMeleeHit.Broadcast(FirstHitComp, OtherActor, FirstHitResult.GetComponent(), FirstHitResult.GetComponent()->GetCollisionObjectType(), HitSurfaceProperties, FirstHitImpulse, FirstHitResult);
+		OnMeleeHit.Broadcast(FirstHitComp, OtherActor, Hit.GetComponent(), Hit.GetComponent()->GetCollisionObjectType(), HitSurfaceProperties, NormalImpulse, Hit);
+	}
+	else
+	{
+		OnMeleeInvalidHit.Broadcast(OtherActor, Hit.GetComponent(), NormalImpulse, Hit);
 	}
 }
 
@@ -713,9 +728,6 @@ void UGS_Melee::HandlePostPhysicsHandle(UGripMotionControllerComponent* Gripping
 {
 	if (!bIsActive)
 		return;
-
-	if(bSkipGripMassChecks)
-		HandleInfo->bSkipMassCheck = true;
 
 	if (SecondaryHand.IsValid() )// && GrippingController == PrimaryHand.HoldingController)
 	{

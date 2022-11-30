@@ -4,7 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GripMotionControllerComponent.h"
-#include "Engine/Engine.h"
+//#include "Engine/Engine.h"
 #include "Animation/SkeletalMeshActor.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SphereComponent.h"
@@ -92,7 +92,7 @@ public:
 		return this->GetCachedLocalBounds();
 	}
 
-	void PerformBlendPhysicsBonesVR(const TArray<FBoneIndexType>& InRequiredBones, TArray<FTransform>& InBoneSpaceTransforms);
+	void PerformBlendPhysicsBonesVR(const TArray<FBoneIndexType>& InRequiredBones, TArray<FTransform>& InOutComponentSpaceTransforms, TArray<FTransform>& InOutBoneSpaceTransforms);
 	virtual void RegisterEndPhysicsTick(bool bRegister) override;
 	virtual void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	// END INVERSED MESH FIX

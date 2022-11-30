@@ -2,6 +2,8 @@
 
 #include "GripScripts/GS_Physics.h"
 #include "VRGripInterface.h"
+#include "Components/PrimitiveComponent.h"
+#include "GameFramework/Actor.h"
 #include "GripMotionControllerComponent.h"
 
 UGS_Physics::UGS_Physics(const FObjectInitializer& ObjectInitializer) :
@@ -16,7 +18,6 @@ UGS_Physics::UGS_Physics(const FObjectInitializer& ObjectInitializer) :
 	bInjectPostPhysicsHandle = true;
 
 	bCanEverTick = false;
-	bSkipGripMassChecks = true;
 
 	SingleHandPhysicsSettings.TwistSettings.MaxForceCoefficient = 1.f;
 	SingleHandPhysicsSettings.SwingSettings = SingleHandPhysicsSettings.TwistSettings;
@@ -102,9 +103,6 @@ void UGS_Physics::HandlePostPhysicsHandle(UGripMotionControllerComponent* Grippi
 {
 	if (!bIsActive)
 		return;
-
-	if(bSkipGripMassChecks)
-		HandleInfo->bSkipMassCheck = true;
 
 
 	UpdateDualHandInfo(GrippingController, false);

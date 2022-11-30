@@ -2,12 +2,9 @@
 
 #pragma once
 #include "CoreMinimal.h"
-#include "VRBPDatatypes.h"
-#include "VRPathFollowingComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/LocalPlayer.h"
 #include "VRPlayerController.generated.h"
-
 
 // A base player controller specifically for handling OnCameraManagerCreated.
 // Used in case you don't want the VRPlayerCharacter changes in a PendingPlayerController
@@ -20,7 +17,7 @@ public:
 
 	// Event called in BPs when the camera manager is created (only fired on locally controlled player controllers)
 	UFUNCTION(BlueprintImplementableEvent, meta = (DisplayName = "OnCameraManagerCreated"), Category = Actor)
-	void OnCameraManagerCreated(APlayerCameraManager* CameraManager);
+		void OnCameraManagerCreated(APlayerCameraManager* CameraManager);
 
 	virtual void SpawnPlayerCameraManager() override
 	{
@@ -66,18 +63,17 @@ public:
 	virtual void PlayerTick(float DeltaTime) override;
 };
 
-
 /**
 * Utility class, when set as the default local player it will spawn the target PlayerController class instead as the pending player controller
 */
-UCLASS(BlueprintType, Blueprintable, meta = (ShortTooltip = "Utility class, when set as the default local player it will spawn the target PlayerController class instead as the pending one"))
+UCLASS(Blueprintable, meta = (ShortTooltip = "Utility class, when set as the default local player it will spawn the target PlayerController class instead as the pending one"))
 class VREXPANSIONPLUGIN_API UVRLocalPlayer : public ULocalPlayer
 {
 	GENERATED_UCLASS_BODY()
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LocalPlayer")
 	TSubclassOf<class APlayerController> OverridePendingLevelPlayerControllerClass;
-	
+
 	virtual bool SpawnPlayActor(const FString& URL, FString& OutError, UWorld* InWorld)
 	{
 		if (OverridePendingLevelPlayerControllerClass)

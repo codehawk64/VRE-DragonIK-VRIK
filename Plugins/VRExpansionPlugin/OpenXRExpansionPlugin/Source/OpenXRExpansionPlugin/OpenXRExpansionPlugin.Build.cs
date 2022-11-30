@@ -32,6 +32,7 @@ namespace UnrealBuildTool.Rules
                 new string[]
                 {
                     "Core",
+                    "NetCore",
                     "CoreUObject",
 					//"ApplicationCore",
                     "Engine",
@@ -44,11 +45,20 @@ namespace UnrealBuildTool.Rules
                     "SlateCore",
 					//"LiveLink",
 					//"LiveLinkInterface",
-					"OpenXRHMD"
                 }
 				);
-
-            AddEngineThirdPartyPrivateStaticDependencies(Target, "OpenXR");
+                
+            if (Target.Platform != UnrealTargetPlatform.Mac)
+            {
+                PrivateDependencyModuleNames.AddRange(
+                    new string[]
+                    {
+                        "OpenXRHMD"
+                    }
+                );
+                PrivateDefinitions.AddRange(new string[] { "OPENXR_SUPPORTED" });
+                AddEngineThirdPartyPrivateStaticDependencies(Target, "OpenXR");
+            }
 
            // if (Target.bBuildEditor == true)
            // {

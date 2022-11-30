@@ -1,6 +1,9 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "Interactibles/VRButtonComponent.h"
+#include "Net/UnrealNetwork.h"
+//#include "VRGripInterface.h"
+#include "GripMotionControllerComponent.h"
 #include "GameFramework/Character.h"
 
   //=============================================================================
@@ -84,13 +87,13 @@ void UVRButtonComponent::TickComponent(float DeltaTime, enum ELevelTick TickType
 
 	const float WorldTime = GetWorld()->GetRealTimeSeconds();
 
-	if (LocalInteractingComponent.IsValid())
+	if (IsValid(LocalInteractingComponent))
 	{
 		// If button was set to inactive during use
 		if (!bIsEnabled)
 		{
 			// Remove interacting component and return, next tick will begin lerping back
-			LocalInteractingComponent.Reset();
+			LocalInteractingComponent = nullptr;
 			return;
 		}
 
@@ -105,7 +108,7 @@ void UVRButtonComponent::TickComponent(float DeltaTime, enum ELevelTick TickType
 			
 			// If active and a toggled stay, then clamp min to the toggled stay location
 			if (ButtonType == EVRButtonType::Btn_Toggle_Stay && bButtonState)
-				ClampMinDepth = -(ButtonEngageDepth + (1.e-2f)); // + NOT_SO_KINDA_SMALL_NUMBER
+				ClampMinDepth = -(ButtonEngageDepth + (1.e-2f)); // + NOT_SO_UE_KINDA_SMALL_NUMBER
 
 			float NewDepth = FMath::Clamp(GetAxisValue(InitialComponentLoc) + (-CheckDepth), -DepressDistance, ClampMinDepth);
 			this->SetRelativeLocation(InitialRelativeTransform.TransformPosition(SetAxisValue(NewDepth)), false);
@@ -114,9 +117,9 @@ void UVRButtonComponent::TickComponent(float DeltaTime, enum ELevelTick TickType
 			{
 				if ((StateChangeAuthorityType == EVRStateChangeAuthorityType::CanChangeState_All) ||
 					(StateChangeAuthorityType == EVRStateChangeAuthorityType::CanChangeState_Server && GetNetMode() < ENetMode::NM_Client) ||
-					(StateChangeAuthorityType == EVRStateChangeAuthorityType::CanChangeState_Owner && LocalLastInteractingActor.IsValid() && LocalLastInteractingActor->HasLocalNetOwner()))
+					(StateChangeAuthorityType == EVRStateChangeAuthorityType::CanChangeState_Owner && IsValid(LocalLastInteractingActor) && LocalLastInteractingActor->HasLocalNetOwner()))
 				{
-					if (!bToggledThisTouch && NewDepth <= (-ButtonEngageDepth) + KINDA_SMALL_NUMBER && (WorldTime - LastToggleTime) >= MinTimeBetweenEngaging)
+					if (!bToggledThisTouch && NewDepth <= (-ButtonEngageDepth) + UE_KINDA_SMALL_NUMBER && (WorldTime - LastToggleTime) >= MinTimeBetweenEngaging)
 					{
 						LastToggleTime = WorldTime;
 						bToggledThisTouch = true;
@@ -138,8 +141,8 @@ void UVRButtonComponent::TickComponent(float DeltaTime, enum ELevelTick TickType
 			OnButtonEndInteraction.Broadcast(LocalLastInteractingActor.Get(), LocalLastInteractingComponent.Get());
 			ReceiveButtonEndInteraction(LocalLastInteractingActor.Get(), LocalLastInteractingComponent.Get());
 
-			LocalInteractingComponent.Reset(); // Just reset it here so it only does it once
-			LocalLastInteractingComponent.Reset();
+			LocalInteractingComponent = nullptr; // Just reset it here so it only does it once
+			LocalLastInteractingComponent = nullptr;
 		}
 		else
 			this->SetRelativeLocation(FMath::VInterpConstantTo(this->GetRelativeLocation(), GetTargetRelativeLocation(), DeltaTime, DepressSpeed), false);
@@ -151,10 +154,10 @@ void UVRButtonComponent::TickComponent(float DeltaTime, enum ELevelTick TickType
 	{
 		if ((StateChangeAuthorityType == EVRStateChangeAuthorityType::CanChangeState_All) ||
 			(StateChangeAuthorityType == EVRStateChangeAuthorityType::CanChangeState_Server && GetNetMode() < ENetMode::NM_Client) ||
-			(StateChangeAuthorityType == EVRStateChangeAuthorityType::CanChangeState_Owner && LocalLastInteractingActor.IsValid() && LocalLastInteractingActor->HasLocalNetOwner()))
+			(StateChangeAuthorityType == EVRStateChangeAuthorityType::CanChangeState_Owner && IsValid(LocalLastInteractingActor) && LocalLastInteractingActor->HasLocalNetOwner()))
 		{
 			// Check for if we should set the state of the button, done here as for the press button the lerp counts for input
-			bool bCheckState = (GetAxisValue(InitialRelativeTransform.InverseTransformPosition(this->GetRelativeLocation())) <= (-ButtonEngageDepth) + KINDA_SMALL_NUMBER);
+			bool bCheckState = (GetAxisValue(InitialRelativeTransform.InverseTransformPosition(this->GetRelativeLocation())) <= (-ButtonEngageDepth) + UE_KINDA_SMALL_NUMBER);
 			if (bButtonState != bCheckState && (WorldTime - LastToggleTime) >= MinTimeBetweenEngaging)
 
 			{
@@ -213,10 +216,10 @@ void UVRButtonComponent::SetLastInteractingActor()
 {
 
 	// Early out on the simple checks
-	if (!LocalInteractingComponent.IsValid() || LocalInteractingComponent == GetAttachParent() || LocalInteractingComponent->GetAttachParent() == GetAttachParent())
+	if (!IsValid(LocalInteractingComponent) || LocalInteractingComponent == GetAttachParent() || LocalInteractingComponent->GetAttachParent() == GetAttachParent())
 	{
-		LocalLastInteractingActor.Reset();
-		LocalLastInteractingComponent.Reset();
+		LocalLastInteractingActor = nullptr;
+		LocalLastInteractingComponent = nullptr;
 		return;
 	}
 
@@ -271,14 +274,14 @@ void UVRButtonComponent::SetLastInteractingActor()
 		return;
 	}
 
-	LocalLastInteractingActor.Reset();
+	LocalLastInteractingActor = nullptr;
 	return;
 }
 
 void UVRButtonComponent::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
 	// Other Actor is the actor that triggered the event. Check that is not ourself.  
-	if (bIsEnabled && !LocalInteractingComponent.IsValid() && (bSkipOverlapFiltering || IsValidOverlap(OtherComp)))
+	if (bIsEnabled && !IsValid(LocalInteractingComponent) && (bSkipOverlapFiltering || IsValidOverlap(OtherComp)))
 	{
 		LocalInteractingComponent = OtherComp;
 
@@ -301,9 +304,9 @@ void UVRButtonComponent::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AAc
 
 void UVRButtonComponent::OnOverlapEnd(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
-	if (LocalInteractingComponent.IsValid() && OtherComp == LocalInteractingComponent)
+	if (IsValid(LocalInteractingComponent) && OtherComp == LocalInteractingComponent)
 	{
-		LocalInteractingComponent.Reset();
+		LocalInteractingComponent = nullptr;
 	}
 }
 
@@ -312,7 +315,7 @@ FVector UVRButtonComponent::GetTargetRelativeLocation()
 	// If target is the half pressed
 	if (ButtonType == EVRButtonType::Btn_Toggle_Stay && bButtonState)
 	{
-		// 1.e-2f = MORE_KINDA_SMALL_NUMBER
+		// 1.e-2f = MORE_UE_KINDA_SMALL_NUMBER
 		return InitialRelativeTransform.TransformPosition(SetAxisValue(-(ButtonEngageDepth + (1.e-2f))));
 	}
 
@@ -338,7 +341,7 @@ void UVRButtonComponent::SetButtonToRestingPosition(bool bLerpToPosition)
 
 			// If active and a toggled stay, then clamp min to the toggled stay location
 			if (bButtonState)
-				ClampMinDepth = -(ButtonEngageDepth + (1.e-2f)); // + NOT_SO_KINDA_SMALL_NUMBER
+				ClampMinDepth = -(ButtonEngageDepth + (1.e-2f)); // + NOT_SO_UE_KINDA_SMALL_NUMBER
 
 			float NewDepth = FMath::Clamp(ClampMinDepth, -DepressDistance, ClampMinDepth);
 			this->SetRelativeLocation(InitialRelativeTransform.TransformPosition(SetAxisValue(NewDepth)), false);
@@ -376,5 +379,36 @@ void UVRButtonComponent::ResetInitialButtonLocation()
 
 bool UVRButtonComponent::IsButtonInUse()
 {
-	return LocalInteractingComponent.IsValid();
+	return IsValid(LocalInteractingComponent);
+}
+
+float UVRButtonComponent::GetAxisValue(FVector CheckLocation)
+{
+	switch (ButtonAxis)
+	{
+	case EVRInteractibleAxis::Axis_X:
+		return CheckLocation.X; break;
+	case EVRInteractibleAxis::Axis_Y:
+		return CheckLocation.Y; break;
+	case EVRInteractibleAxis::Axis_Z:
+		return CheckLocation.Z; break;
+	default:return 0.0f; break;
+	}
+}
+
+FVector UVRButtonComponent::SetAxisValue(float SetValue)
+{
+	FVector vec = FVector::ZeroVector;
+
+	switch (ButtonAxis)
+	{
+	case EVRInteractibleAxis::Axis_X:
+		vec.X = SetValue; break;
+	case EVRInteractibleAxis::Axis_Y:
+		vec.Y = SetValue; break;
+	case EVRInteractibleAxis::Axis_Z:
+		vec.Z = SetValue; break;
+	}
+
+	return vec;
 }
