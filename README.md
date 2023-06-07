@@ -1,4 +1,4 @@
-[NOTE : This project is made in UE 4.27 with a separate branch for UE 5.0]
+[NOTE : This project runs in UE 5.1 in it's latest build but older engine examples are available in separate branches.]
 
 
 Download and play with the executable windows build here : https://drive.google.com/file/d/1ErjLQvJfe0Fzi9ypqu5ptEJ7S7QFo9Jq/view?usp=share_link
