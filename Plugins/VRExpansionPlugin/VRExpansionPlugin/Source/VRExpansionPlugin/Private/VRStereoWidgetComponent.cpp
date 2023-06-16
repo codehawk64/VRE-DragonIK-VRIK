@@ -1,6 +1,8 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "VRStereoWidgetComponent.h"
+#include UE_INLINE_GENERATED_CPP_BY_NAME(VRStereoWidgetComponent)
+
 #include "VRExpansionFunctionLibrary.h"
 #include "IXRTrackingSystem.h"
 #include "VRBaseCharacter.h"
@@ -14,6 +16,7 @@
 #include "EngineGlobals.h"
 #include "MaterialShared.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialRenderProxy.h"
 #include "Engine/Engine.h"
 //#include "Widgets/SWindow.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -447,7 +450,7 @@ void UVRStereoWidgetComponent::TickComponent(float DeltaTime, enum ELevelTick Ti
 
 	//bool bIsCurVis = IsWidgetVisible();
 
-	bool bIsVisible = IsVisible() && IsWidgetVisible() && !bIsSleeping;// && ((GetWorld()->TimeSince(GetLastRenderTime()) <= 0.5f));
+	bool bIsVisible = (bAlwaysVisible && !bIsSleeping)  || (IsVisible() && IsWidgetVisible() && !bIsSleeping);// && ((GetWorld()->TimeSince(GetLastRenderTime()) <= 0.5f));
 
 	// If we are set to not use stereo layers or we don't have a valid stereo layer device
 	if (
@@ -635,12 +638,13 @@ void UVRStereoWidgetComponent::TickComponent(float DeltaTime, enum ELevelTick Ti
 	if (bIsDirty)
 	{
 		// OpenXR doesn't take the transforms scale component into account for the stereo layer, so we need to scale the buffer instead
-		bool bScaleBuffer = false;
+		// Fixed? In 5.2, leaving code commented out in case I need to bring it back
+		/*bool bScaleBuffer = false;
 		static FName SystemName(TEXT("OpenXR"));
 		if (GEngine->XRSystem.IsValid() && (GEngine->XRSystem->GetSystemName() == SystemName))
 		{
 			bScaleBuffer = true;
-		}
+		}*/
 
 		IStereoLayers::FLayerDesc LayerDsec;
 		LayerDsec.Priority = Priority;
@@ -650,18 +654,18 @@ void UVRStereoWidgetComponent::TickComponent(float DeltaTime, enum ELevelTick Ti
 		if (bDelayForRenderThread && !LastTransform.Equals(FTransform::Identity))
 		{
 			LayerDsec.Transform = LastTransform;
-			if (bScaleBuffer)
+			/*if (bScaleBuffer)
 			{
 				LayerDsec.QuadSize = FVector2D(DrawSize) * FVector2D(LastTransform.GetScale3D());
-			}
+			}*/
 		}
 		else
 		{
 			LayerDsec.Transform = Transform;
-			if (bScaleBuffer)
+			/*if (bScaleBuffer)
 			{
 				LayerDsec.QuadSize = FVector2D(DrawSize) * FVector2D(Transform.GetScale3D());
-			}
+			}*/
 		}
 
 		if (RenderTarget)

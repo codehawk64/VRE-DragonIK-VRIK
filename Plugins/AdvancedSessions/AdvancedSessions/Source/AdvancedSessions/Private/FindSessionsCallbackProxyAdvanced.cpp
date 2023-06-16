@@ -1,6 +1,7 @@
 // Copyright 1998-2015 Epic Games, Inc. All Rights Reserved.
 #include "FindSessionsCallbackProxyAdvanced.h"
 
+#include "Online/OnlineSessionNames.h"
 
 //////////////////////////////////////////////////////////////////////////
 // UFindSessionsCallbackProxyAdvanced
@@ -198,7 +199,7 @@ void UFindSessionsCallbackProxyAdvanced::OnCompleted(bool bSuccess)
 
 					FBlueprintSessionResult BPResult;
 					BPResult.OnlineResult = Result;
-					SessionSearchResults.Add(BPResult);
+					SessionSearchResults.AddUnique(BPResult);
 				}
 				OnSuccess.Broadcast(SessionSearchResults);
 				return;
@@ -217,7 +218,7 @@ void UFindSessionsCallbackProxyAdvanced::OnCompleted(bool bSuccess)
 
 					FBlueprintSessionResult BPResult;
 					BPResult.OnlineResult = Result;
-					SessionSearchResults.Add(BPResult);
+					SessionSearchResults.AddUnique(BPResult);
 				}
 				if (!bRunSecondSearch)
 				{

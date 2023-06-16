@@ -1,6 +1,8 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "Grippables/GrippableSphereComponent.h"
+#include UE_INLINE_GENERATED_CPP_BY_NAME(GrippableSphereComponent)
+
 #include "GripMotionControllerComponent.h"
 #include "VRExpansionFunctionLibrary.h"
 #include "GripScripts/VRGripScriptBase.h"
@@ -57,9 +59,9 @@ void UGrippableSphereComponent::PreReplication(IRepChangedPropertyTracker & Chan
 	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(UGrippableSphereComponent, GameplayTags, bRepGripSettingsAndGameplayTags);
 	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(UGrippableSphereComponent, GripLogicScripts, bReplicateGripScripts);
 
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeLocation, bReplicateMovement);
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeRotation, bReplicateMovement);
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeScale3D, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeLocation, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeRotation, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeScale3D, bReplicateMovement);
 }
 
 bool UGrippableSphereComponent::ReplicateSubobjects(UActorChannel* Channel, class FOutBunch *Bunch, FReplicationFlags *RepFlags)

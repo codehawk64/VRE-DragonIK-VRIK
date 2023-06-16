@@ -1,6 +1,8 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "Interactibles/VRDialComponent.h"
+#include UE_INLINE_GENERATED_CPP_BY_NAME(VRDialComponent)
+
 #include "VRExpansionFunctionLibrary.h"
 #include "GripMotionControllerComponent.h"
 #include "Net/UnrealNetwork.h"
@@ -76,9 +78,9 @@ void UVRDialComponent::PreReplication(IRepChangedPropertyTracker & ChangedProper
 	// Don't replicate if set to not do it
 	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(UVRDialComponent, GameplayTags, bRepGameplayTags);
 
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeLocation, bReplicateMovement);
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeRotation, bReplicateMovement);
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeScale3D, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeLocation, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeRotation, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeScale3D, bReplicateMovement);
 }
 
 void UVRDialComponent::OnRegister()
@@ -257,7 +259,15 @@ void UVRDialComponent::OnGripRelease_Implementation(UGripMotionControllerCompone
 	{
 		this->SetRelativeRotation((FTransform(UVRInteractibleFunctionLibrary::SetAxisValueRot(DialRotationAxis, FMath::GridSnap(CurRotBackEnd, SnapAngleIncrement), FRotator::ZeroRotator)) * InitialRelativeTransform).Rotator());		
 		CurRotBackEnd = FMath::GridSnap(CurRotBackEnd, SnapAngleIncrement);
-		CurrentDialAngle = FRotator::ClampAxis(FMath::RoundToFloat(CurRotBackEnd));
+
+		if (bUseRollover)
+		{
+			CurrentDialAngle = FMath::RoundToFloat(CurRotBackEnd);
+		}
+		else
+		{
+			CurrentDialAngle = FRotator::ClampAxis(FMath::RoundToFloat(CurRotBackEnd));
+		}
 		
 		if (!FMath::IsNearlyEqual(LastSnapAngle, CurrentDialAngle))
 		{
@@ -452,7 +462,7 @@ bool UVRDialComponent::GetGripScripts_Implementation(TArray<UVRGripScriptBase*> 
 void UVRDialComponent::SetDialAngle(float DialAngle, bool bCallEvents)
 {
 	CurRotBackEnd = DialAngle;
-	AddDialAngle(0.0f);
+	AddDialAngle(0.0f, bCallEvents);
 }
 
 void UVRDialComponent::AddDialAngle(float DialAngleDelta, bool bCallEvents, bool bSkipSettingRot)

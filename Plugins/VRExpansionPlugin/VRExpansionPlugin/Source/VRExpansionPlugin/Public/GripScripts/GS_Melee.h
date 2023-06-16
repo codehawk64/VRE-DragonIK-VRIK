@@ -178,7 +178,7 @@ public:
 	UGS_Melee(const FObjectInitializer& ObjectInitializer);
 
 	UFUNCTION()
-	void OnLodgeHitCallback(AActor* SelfActor, AActor* OtherActor, FVector NormalImpulse, const FHitResult& Hit);
+	virtual void OnLodgeHitCallback(AActor* SelfActor, AActor* OtherActor, FVector NormalImpulse, const FHitResult& Hit);
 
 	UFUNCTION(BlueprintCallable, Category = "Weapon Settings")
 		void SetIsLodged(bool IsLodged, UPrimitiveComponent * LodgeComponent)
@@ -274,6 +274,10 @@ public:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Weapon Settings")
 	FBPGripPair SecondaryHand;
+
+	// If true we will use the primary hands grip settings when we only have one hand gripping instead of the objects VRGripInterfaces settings
+	UPROPERTY(BlueprintReadOnly, Category = "Weapon Settings")
+		bool bUsePrimaryHandSettingsWithOneHand;
 
 	// To select the type of com setting to use
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon Settings")

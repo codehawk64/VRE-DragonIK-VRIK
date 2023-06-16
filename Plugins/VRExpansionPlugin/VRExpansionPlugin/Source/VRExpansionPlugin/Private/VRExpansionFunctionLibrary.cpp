@@ -1,5 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 #include "VRExpansionFunctionLibrary.h"
+#include UE_INLINE_GENERATED_CPP_BY_NAME(VRExpansionFunctionLibrary)
+
 #include "DrawDebugHelpers.h"
 #include "Engine/Engine.h"
 #include "IXRTrackingSystem.h"
@@ -15,6 +17,7 @@
 //#include "HeadMountedDisplayFunctionLibrary.h"
 #include "Grippables/GrippablePhysicsReplication.h"
 #include "GameplayTagContainer.h"
+#include "XRMotionControllerBase.h"
 //#include "IHeadMountedDisplay.h"
 
 #include "Chaos/ParticleHandle.h"
@@ -232,7 +235,13 @@ void UVRExpansionFunctionLibrary::GetGripSlotInRangeByTypeName_Component(FName S
 		{
 			if (UHandSocketComponent* SocketComp = Cast<UHandSocketComponent>(AttachChild))
 			{
-				if (!SocketComp->bDisabled && SocketComp->SlotPrefix.ToString().Contains(GripIdentifier, ESearchCase::IgnoreCase, ESearchDir::FromStart))
+				if (SocketComp->bDisabled)
+					continue;
+
+				FName BoneName = SocketComp->GetAttachSocketName();
+				FString SlotPrefix = BoneName != NAME_None ? BoneName.ToString() + SocketComp->SlotPrefix.ToString() : SocketComp->SlotPrefix.ToString();
+
+				if (SlotPrefix.Contains(GripIdentifier, ESearchCase::IgnoreCase, ESearchDir::FromStart))
 				{
 					FVector SocketRelativeLocation = Component->GetComponentTransform().InverseTransformPosition(SocketComp->GetHandSocketTransform(QueryController, true).GetLocation());
 					float vecLen = FVector::DistSquared(RelativeWorldLocation, SocketRelativeLocation);
@@ -746,3 +755,30 @@ bool UVRExpansionFunctionLibrary::GetFirstGameplayTagWithExactParent(FGameplayTa
 
 	return false;
 }
+
+void UVRExpansionFunctionLibrary::ResetPeakLowPassFilter(UPARAM(ref) FBPLowPassPeakFilter& TargetPeakFilter)
+{
+	TargetPeakFilter.Reset();
+}
+
+void UVRExpansionFunctionLibrary::UpdatePeakLowPassFilter(UPARAM(ref) FBPLowPassPeakFilter& TargetPeakFilter, FVector NewSample)
+{
+	TargetPeakFilter.AddSample(NewSample);
+}
+
+FVector UVRExpansionFunctionLibrary::GetPeak_PeakLowPassFilter(UPARAM(ref) FBPLowPassPeakFilter& TargetPeakFilter)
+{
+	return TargetPeakFilter.GetPeak();
+}
+
+void UVRExpansionFunctionLibrary::ResetEuroSmoothingFilter(UPARAM(ref) FBPEuroLowPassFilter& TargetEuroFilter)
+
+{
+	TargetEuroFilter.ResetSmoothingFilter();
+}
+void UVRExpansionFunctionLibrary::RunEuroSmoothingFilter(UPARAM(ref) FBPEuroLowPassFilter& TargetEuroFilter, FVector InRawValue, const float DeltaTime, FVector & SmoothedValue)
+
+{
+	SmoothedValue = TargetEuroFilter.RunFilterSmoothing(InRawValue, DeltaTime);
+}
+ 

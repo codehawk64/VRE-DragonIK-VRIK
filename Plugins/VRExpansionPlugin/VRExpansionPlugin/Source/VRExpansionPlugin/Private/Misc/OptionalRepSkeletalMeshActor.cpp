@@ -1,9 +1,12 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "Misc/OptionalRepSkeletalMeshActor.h"
+#include UE_INLINE_GENERATED_CPP_BY_NAME(OptionalRepSkeletalMeshActor)
+
 #include "TimerManager.h"
 #include "Net/UnrealNetwork.h"
 #include "PhysicsReplication.h"
+#include "PhysicsEngine/PhysicsAsset.h"
 #if WITH_PUSH_MODEL
 #include "Net/Core/PushModel/PushModel.h"
 #endif
@@ -87,9 +90,9 @@ void UInversePhysicsSkeletalMeshComponent::PreReplication(IRepChangedPropertyTra
 	Super::PreReplication(ChangedPropertyTracker);
 
 	// Don't replicate if set to not do it
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeLocation, bReplicateMovement);
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeRotation, bReplicateMovement);
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeScale3D, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeLocation, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeRotation, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeScale3D, bReplicateMovement);
 }
 
 void UInversePhysicsSkeletalMeshComponent::EndPhysicsTickComponentVR(FSkeletalMeshComponentEndPhysicsTickFunctionVR& ThisTickFunction)

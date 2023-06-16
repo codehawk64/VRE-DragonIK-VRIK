@@ -1,10 +1,13 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "Grippables/HandSocketComponent.h"
+#include UE_INLINE_GENERATED_CPP_BY_NAME(HandSocketComponent)
+
 #include "Engine/CollisionProfile.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimInstanceProxy.h"
 #include "Animation/PoseSnapshot.h"
+#include "Animation/AnimData/AnimDataModel.h"
 //#include "VRExpansionFunctionLibrary.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/PoseableMeshComponent.h"
@@ -71,6 +74,7 @@ UHandSocketComponent::UHandSocketComponent(const FObjectInitializer& ObjectIniti
 	HandTargetAnimation = nullptr;
 	MirroredScale = FVector(1.f, 1.f, -1.f);
 	bOnlySnapMesh = false;
+	bIgnoreAttachBone = false;
 	bFlipForLeftHand = false;
 	bLeftHandDominant = false;
 	bOnlyFlipRotation = false;
@@ -158,7 +162,8 @@ bool UHandSocketComponent::GetAnimationSequenceAsPoseSnapShot(UAnimSequence* InA
 
 			if (TrackIndex != INDEX_NONE && (!bSkipRootBone || TrackIndex != 0))
 			{
-				InAnimationSequence->GetBoneTransform(LocalTransform, TrackIndex, 0.f, false);
+				double TrackLocation = 0.0f;			
+				InAnimationSequence->GetBoneTransform(LocalTransform, FSkeletonPoseBoneIndex(TrackMap[TrackIndex].BoneTreeIndex), TrackLocation, false);
 			}
 			else
 			{
@@ -265,7 +270,8 @@ bool UHandSocketComponent::GetBlendedPoseSnapShot(FPoseSnapshot& PoseSnapShot, U
 
 			if (TrackIndex != INDEX_NONE && (!bSkipRootBone || TrackIndex != 0))
 			{
-				HandTargetAnimation->GetBoneTransform(LocalTransform, TrackIndex, 0.f, false);
+				double TrackLocation = 0.0f;
+				HandTargetAnimation->GetBoneTransform(LocalTransform, FSkeletonPoseBoneIndex(TrackMap[TrackIndex].BoneTreeIndex), TrackLocation, false);
 			}
 			else
 			{
@@ -421,14 +427,19 @@ FTransform UHandSocketComponent::GetHandSocketTransform(UGripMotionControllerCom
 			if (bLeftHandDominant == bIsRightHand)
 			{
 				FTransform ReturnTrans = this->GetRelativeTransform();
-				ReturnTrans.Mirror(GetAsEAxis(MirrorAxis), GetAsEAxis(FlipAxis));
-				if (bOnlyFlipRotation)
-				{
-					ReturnTrans.SetTranslation(this->GetRelativeLocation());
-				}
-
 				if (USceneComponent* AttParent = this->GetAttachParent())
 				{
+					ReturnTrans.Mirror(GetAsEAxis(MirrorAxis), GetAsEAxis(FlipAxis));
+					if (bOnlyFlipRotation)
+					{
+						ReturnTrans.SetTranslation(this->GetRelativeLocation());
+					}
+
+					if (this->GetAttachSocketName() != NAME_None)
+					{
+						ReturnTrans = ReturnTrans * AttParent->GetSocketTransform(GetAttachSocketName(), RTS_Component);
+					}
+
 					ReturnTrans = ReturnTrans * AttParent->GetComponentTransform();
 				}
 				return ReturnTrans;
@@ -479,6 +490,11 @@ FTransform UHandSocketComponent::GetMeshRelativeTransform(bool bIsRightHand, boo
 		}
 	}
 
+	if (bIgnoreAttachBone && this->GetAttachSocketName() != NAME_None)
+	{
+		ReturnTrans = ReturnTrans * GetAttachParent()->GetSocketTransform(GetAttachSocketName(), RTS_Component);
+	}
+
 
 	return ReturnTrans;
 }
@@ -486,17 +502,45 @@ FTransform UHandSocketComponent::GetMeshRelativeTransform(bool bIsRightHand, boo
 #if WITH_EDITORONLY_DATA
 FTransform UHandSocketComponent::GetBoneTransformAtTime(UAnimSequence* MyAnimSequence, /*float AnimTime,*/ int BoneIdx, FName BoneName, bool bUseRawDataOnly)
 {
-	float tracklen = MyAnimSequence->GetPlayLength();
+	double tracklen = MyAnimSequence->GetPlayLength();
 	FTransform BoneTransform = FTransform::Identity;
 	IAnimationDataController& AnimController = MyAnimSequence->GetController();
 
-	if (UAnimDataModel* AnimModel = AnimController.GetModel())
+	if (const IAnimationDataModel* AnimModel = AnimController.GetModel())
 	{
-		int32 TrackIndex = AnimModel->GetBoneTrackIndexByName(BoneName);
+		const TArray<FTrackToSkeletonMap>& TrackMap = MyAnimSequence->GetCompressedTrackToSkeletonMapTable();
+
+		int32 TrackIndex = INDEX_NONE;
+		if (BoneIdx != INDEX_NONE && BoneIdx < TrackMap.Num() && TrackMap[BoneIdx].BoneTreeIndex == BoneIdx)
+		{
+			TrackIndex = BoneIdx;
+		}
+		else
+		{
+			// This shouldn't happen but I need a fallback
+			// Don't currently want to reconstruct the map inversely
+			for (int i = 0; i < TrackMap.Num(); ++i)
+			{
+				if (TrackMap[i].BoneTreeIndex == BoneIdx)
+				{
+					TrackIndex = i;
+					break;
+				}
+			}
+		}
+
 		if (TrackIndex != INDEX_NONE)
 		{
-			MyAnimSequence->GetBoneTransform(BoneTransform, TrackIndex, /*AnimTime*/ tracklen, bUseRawDataOnly);
-			return BoneTransform;
+			FSkeletonPoseBoneIndex BoneIndex(TrackMap[TrackIndex].BoneTreeIndex);
+			if (BoneIndex.IsValid())
+			{
+				MyAnimSequence->GetBoneTransform(BoneTransform, BoneIndex, /*AnimTime*/ tracklen, bUseRawDataOnly);
+				return BoneTransform;
+			}
+		}
+		else
+		{
+			return FTransform::Identity;
 		}
 	}
 
@@ -735,9 +779,9 @@ void UHandSocketComponent::PreReplication(IRepChangedPropertyTracker & ChangedPr
 	// Don't replicate if set to not do it
 	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(UHandSocketComponent, GameplayTags, bRepGameplayTags);
 
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeLocation, bReplicateMovement);
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeRotation, bReplicateMovement);
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeScale3D, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeLocation, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeRotation, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeScale3D, bReplicateMovement);
 }
 
 //=============================================================================

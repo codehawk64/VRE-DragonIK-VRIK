@@ -1,6 +1,8 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Grippables/GrippablePhysicsReplication.h"
+#include UE_INLINE_GENERATED_CPP_BY_NAME(GrippablePhysicsReplication)
+
 #include "UObject/ObjectMacros.h"
 #include "UObject/Interface.h"
 #include "DrawDebugHelpers.h"
@@ -10,6 +12,7 @@
 #include "Chaos/PBDRigidsEvolutionGBF.h"
 #include "VRGlobalSettings.h"
 #include "PhysicsEngine/PhysicsSettings.h"
+#include "Physics/Experimental/PhysScene_Chaos.h"
 //#include "Components/SkeletalMeshComponent.h"
 #include "Misc/ScopeRWLock.h"
 

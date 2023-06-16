@@ -1,5 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 #include "AnimNode_ApplyOpenXRHandPose.h"
+#include UE_INLINE_GENERATED_CPP_BY_NAME(AnimNode_ApplyOpenXRHandPose)
+
 //#include "EngineMinimal.h"
 //#include "Engine/Engine.h"
 //#include "CoreMinimal.h"
@@ -176,6 +178,9 @@ void FAnimNode_ApplyOpenXRHandPose::ConvertHandTransformsSpace(TArray<FTransform
 		OutTransforms.AddUninitialized(WorldTransforms.Num());
 	}
 
+	// Ensure add trans is normalized
+	AddTrans.NormalizeRotation();
+
 	// Bone/Parent map
 	int32 BoneParents[26] =
 	{
@@ -219,7 +224,11 @@ void FAnimNode_ApplyOpenXRHandPose::ConvertHandTransformsSpace(TArray<FTransform
 
 	for (int32 Index = 0; Index < EHandKeypointCount; ++Index)
 	{
-		WorldTransforms[Index].NormalizeRotation();
+		if (WorldTransforms[Index].ContainsNaN())
+		{
+			OutTransforms[Index] = FTransform::Identity;
+			continue;
+		}
 
 		if (bMirrorLeftRight)
 		{
@@ -240,6 +249,8 @@ void FAnimNode_ApplyOpenXRHandPose::ConvertHandTransformsSpace(TArray<FTransform
 	for (int32 Index = 0; Index < EHandKeypointCount; ++Index)
 	{
 		FTransform& BoneTransform = WorldTransforms[Index];
+		BoneTransform.NormalizeRotation();
+
 		int32 ParentIndex = BoneParents[Index];
 		int32 ParentParent = -1;
 
@@ -259,15 +270,20 @@ void FAnimNode_ApplyOpenXRHandPose::ConvertHandTransformsSpace(TArray<FTransform
 		}
 		else
 		{
+			FTransform ParentTransform = FTransform::Identity;
+
 			// Merging missing metacarpal bone into the transform
 			if (bMergeMissingUE4Bones && ParentParent == 1) // Wrist
 			{
-				OutTransforms[Index] = BoneTransform.GetRelativeTransform(WorldTransforms[ParentParent]);
+				ParentTransform = WorldTransforms[ParentParent];
 			}
 			else
 			{
-				OutTransforms[Index] = BoneTransform.GetRelativeTransform(WorldTransforms[ParentIndex]);
+				ParentTransform = WorldTransforms[ParentIndex];
 			}
+
+			ParentTransform.NormalizeRotation();
+			OutTransforms[Index] = BoneTransform.GetRelativeTransform(ParentTransform);
 		}
 	}
 }

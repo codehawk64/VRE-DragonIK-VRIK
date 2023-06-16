@@ -1,6 +1,8 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "Grippables/GrippableActor.h"
+#include UE_INLINE_GENERATED_CPP_BY_NAME(GrippableActor)
+
 #include "TimerManager.h"
 #include "Net/UnrealNetwork.h"
 #include "PhysicsReplication.h"
@@ -11,6 +13,8 @@
 #include "Misc/BucketUpdateSubsystem.h"
 #include "GripScripts/VRGripScriptBase.h"
 #include "DrawDebugHelpers.h"
+
+#include "Physics/Experimental/PhysScene_Chaos.h"
 #if WITH_PUSH_MODEL
 #include "Net/Core/PushModel/PushModel.h"
 #endif
@@ -93,13 +97,13 @@ void AGrippableActor::PreReplication(IRepChangedPropertyTracker & ChangedPropert
 
 	GatherCurrentMovement();
 
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(AActor, ReplicatedMovement, IsReplicatingMovement());
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(AActor, ReplicatedMovement, IsReplicatingMovement());
 
 	// Don't need to replicate AttachmentReplication if the root component replicates, because it already handles it.
 	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(AGrippableActor, AttachmentWeldReplication, RootComponent && !RootComponent->GetIsReplicated());
 
 	// Don't need to replicate AttachmentReplication if the root component replicates, because it already handles it.
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(AActor, AttachmentReplication, false);// RootComponent && !RootComponent->GetIsReplicated());
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(AActor, AttachmentReplication, false);// RootComponent && !RootComponent->GetIsReplicated());
 
 
 #if WITH_PUSH_MODEL
@@ -137,7 +141,7 @@ void AGrippableActor::GatherCurrentMovement()
 		if (RootPrimComp && RootPrimComp->IsSimulatingPhysics())
 		{
 #if UE_WITH_IRIS
-			const bool bPrevRepPhysics = ReplicatedMovement.bRepPhysics;
+			const bool bPrevRepPhysics = GetReplicatedMovement_Mutable().bRepPhysics;
 #endif // UE_WITH_IRIS
 
 			bool bFoundInCache = false;
@@ -191,7 +195,7 @@ void AGrippableActor::GatherCurrentMovement()
 
 #if UE_WITH_IRIS
 			// If RepPhysics has changed value then notify the ReplicationSystem
-			if (bPrevRepPhysics != ReplicatedMovement.bRepPhysics)
+			if (bPrevRepPhysics != GetReplicatedMovement_Mutable().bRepPhysics)
 			{
 				UpdateReplicatePhysicsCondition();
 			}

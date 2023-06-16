@@ -48,6 +48,8 @@ public:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = VRMovement)
 		TObjectPtr<UVRRootComponent> VRRootCapsule;
 
+	virtual void RegenerateOffset() override;
+
 	/** Reject sweep impacts that are this close to the edge of the vertical portion of the capsule when performing vertical sweeps, and try again with a smaller capsule. */
 	static const float CLIMB_SWEEP_EDGE_REJECT_DISTANCE;
 	virtual bool IsWithinClimbingEdgeTolerance(const FVector& CapsuleLocation, const FVector& TestImpactPoint, const float CapsuleRadius) const;
@@ -56,8 +58,12 @@ public:
 	virtual bool IsWithinEdgeTolerance(const FVector& CapsuleLocation, const FVector& TestImpactPoint, const float CapsuleRadius) const override;
 
 	// Allow merging movement replication (may cause issues when >10 players due to capsule location
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VRCharacterMovementComponent")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "VRCharacterMovementComponent")
 	bool bAllowMovementMerging;
+
+	// If true we will run client corrections off of the HMD location instead of actor, this is a settable value to allow backwards compatibility
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "VRCharacterMovementComponent")
+	bool bRunClientCorrectionToHMD;
 
 	// Higher values will cause more slide but better step up
 	//UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VRCharacterMovementComponent", meta = (ClampMin = "0.01", UIMin = "0", ClampMax = "1.0", UIMax = "1"))
@@ -136,9 +142,9 @@ public:
 	virtual bool ServerCheckClientErrorVR(float ClientTimeStamp, float DeltaTime, const FVector& Accel, const FVector& ClientWorldLocation, float ClientYaw, const FVector& RelativeClientLocation, UPrimitiveComponent* ClientMovementBase, FName ClientBaseBoneName, uint8 ClientMovementMode);
 
 	/** Replicate position correction to client, associated with a timestamped servermove.  Client will replay subsequent moves after applying adjustment.  */
-	virtual void ClientAdjustPositionVR_Implementation(float TimeStamp, FVector NewLoc, uint16 NewYaw, FVector NewVel, UPrimitiveComponent* NewBase, FName NewBaseBoneName, bool bHasBase, bool bBaseRelativePosition, uint8 ServerMovementMode);
+	virtual void ClientAdjustPositionVR_Implementation(float TimeStamp, FVector NewLoc, uint16 NewYaw, FVector NewVel, UPrimitiveComponent* NewBase, FName NewBaseBoneName, bool bHasBase, bool bBaseRelativePosition, uint8 ServerMovementMode, TOptional<FRotator> OptionalRotation = TOptional<FRotator>());
 
-
+	virtual bool ClientUpdatePositionAfterServerUpdate() override;
 	///////////////////////////
 	// Replication Functions
 	///////////////////////////
@@ -315,10 +321,10 @@ public:
 class VREXPANSIONPLUGIN_API FNetworkPredictionData_Server_VRCharacter : public FNetworkPredictionData_Server_Character
 {
 public:
+
 	FNetworkPredictionData_Server_VRCharacter(const UCharacterMovementComponent& ClientMovement)
 		: FNetworkPredictionData_Server_Character(ClientMovement)
 	{
-
 	}
 
 	FSavedMovePtr AllocateNewMove()

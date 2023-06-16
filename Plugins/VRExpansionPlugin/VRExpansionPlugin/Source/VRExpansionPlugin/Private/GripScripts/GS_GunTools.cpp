@@ -1,12 +1,16 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "GripScripts/GS_GunTools.h"
+#include UE_INLINE_GENERATED_CPP_BY_NAME(GS_GunTools)
+
 #include "VRGripInterface.h"
 #include "GripMotionControllerComponent.h"
 #include "VRExpansionFunctionLibrary.h"
 #include "IXRTrackingSystem.h"
 #include "VRGlobalSettings.h"
 #include "VRBaseCharacter.h"
+#include "VRCharacter.h"
+#include "VRRootComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "GameFramework/Actor.h"
 //#include "Camera/CameraComponent.h"
@@ -169,7 +173,7 @@ bool UGS_GunTools::GetWorldTransform_Implementation
 				FRotator PureYaw = UVRExpansionFunctionLibrary::GetHMDPureYaw_I(VirtualStockComponent->GetComponentRotation());
 				MountWorldTransform = FTransform(PureYaw.Quaternion(), VirtualStockComponent->GetComponentLocation() + PureYaw.RotateVector(VirtualStockSettings.StockSnapOffset));
 			}
-			else if (GrippingController->bHasAuthority && GEngine->XRSystem.IsValid() && GEngine->XRSystem->IsHeadTrackingAllowedForWorld(*GetWorld()))
+			/*else if (GrippingController->bHasAuthority && GEngine->XRSystem.IsValid() && GEngine->XRSystem->IsHeadTrackingAllowedForWorld(*GetWorld()))
 			{
 				FQuat curRot = FQuat::Identity;
 				FVector curLoc = FVector::ZeroVector;
@@ -178,9 +182,20 @@ bool UGS_GunTools::GetWorldTransform_Implementation
 				{
 					// Translate hmd offset by the gripping controllers parent component, this should be in the same space
 					FRotator PureYaw = UVRExpansionFunctionLibrary::GetHMDPureYaw_I(curRot.Rotator());
+
+					if (AVRCharacter* OwningCharacter = Cast<AVRCharacter>(GrippingController->GetOwner()))
+					{
+						if (!OwningCharacter->bRetainRoomscale)
+						{
+							curLoc.X = 0.0f;
+							curLoc.Y = 0.0f;
+							curLoc += PureYaw.RotateVector(FVector(-OwningCharacter->VRRootReference->VRCapsuleOffset.X, -OwningCharacter->VRRootReference->VRCapsuleOffset.Y, -OwningCharacter->VRRootReference->GetScaledCapsuleHalfHeight()));
+						}
+					}
+
 					MountWorldTransform = FTransform(PureYaw.Quaternion(), curLoc + PureYaw.RotateVector(VirtualStockSettings.StockSnapOffset)) * GrippingController->GetAttachParent()->GetComponentTransform();
 				}
-			}
+			}*/
 			else if(IsValid(CameraComponent))
 			{		
 				FRotator PureYaw = UVRExpansionFunctionLibrary::GetHMDPureYaw_I(CameraComponent->GetComponentRotation());
@@ -190,7 +205,7 @@ bool UGS_GunTools::GetWorldTransform_Implementation
 			float StockSnapDistance = FMath::Square(VirtualStockSettings.StockSnapDistance);
 			float DistSquared = FVector::DistSquared(ParentTransform.GetTranslation(), MountWorldTransform.GetTranslation());
 
-			if (DistSquared <= StockSnapDistance)
+			if (!VirtualStockSettings.bUseDistanceBasedStockSnapping || (DistSquared <= StockSnapDistance))
 			{
 
 				float StockSnapLerpThresh = FMath::Square(VirtualStockSettings.StockSnapLerpThreshold);

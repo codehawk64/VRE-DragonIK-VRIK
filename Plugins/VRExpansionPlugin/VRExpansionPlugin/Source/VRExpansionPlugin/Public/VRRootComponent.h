@@ -52,8 +52,17 @@ public:
 		IVRTrackedParentInterface::Default_SetTrackedParent_Impl(NewParentComponent, WaistRadius, WaistTrackingMode, OptionalWaistTrackingParent, this);
 	}
 
+	// Get the target height offset for the current capsule settings
+	// Generally for when using bRetainRoomscale
+	inline FVector GetTargetHeightOffset()
+	{
+		//return FVector::ZeroVector;
+		return FVector(0.f, 0.f, (-this->GetUnscaledCapsuleHalfHeight()) - VRCapsuleOffset.Z);
+	}
+
 	/**
 	* This is overidden for the VR Character to re-set physics location
+	* If updating the capsule height in VR you should be using this function or SetCapsuleHalfHeightVR
 	* Change the capsule size. This is the unscaled size, before component scale is applied.
 	* @param	InRadius : radius of end-cap hemispheres and center cylinder.
 	* @param	InHalfHeight : half-height, from capsule center to end of top or bottom hemisphere.
@@ -63,6 +72,7 @@ public:
 		virtual void SetCapsuleSizeVR(float NewRadius, float NewHalfHeight, bool bUpdateOverlaps = true);
 
 	// Used to update the capsule half height and calculate the new offset value for VR
+	// If updating the capsule height in VR you should be using this function or SetCapsuleSizeVR
 	UFUNCTION(BlueprintCallable, Category = "Components|Capsule")
 		void SetCapsuleHalfHeightVR(float HalfHeight, bool bUpdateOverlaps = true);
 
@@ -85,16 +95,16 @@ protected:
 	void SendPhysicsTransform(ETeleportType Teleport);
 	virtual bool UpdateOverlapsImpl(const TOverlapArrayView* NewPendingOverlaps = nullptr, bool bDoNotifies = true, const TOverlapArrayView* OverlapsAtEndLocation = nullptr) override;
 
-	/** Convert a set of overlaps from a symmetric change in rotation to a subset that includes only those at the end location (filling in OverlapsAtEndLocation). */
+	///** Convert a set of overlaps from a symmetric change in rotation to a subset that includes only those at the end location (filling in OverlapsAtEndLocation). */
 	template<typename AllocatorType>
-	bool ConvertRotationOverlapsToCurrentOverlaps(TArray<FOverlapInfo, AllocatorType>& OutOverlapsAtEndLocation, const TOverlapArrayView& CurrentOverlaps);
+	bool ConvertRotationOverlapsToCurrentOverlapsVR(TArray<FOverlapInfo, AllocatorType>& OutOverlapsAtEndLocation, const TOverlapArrayView& CurrentOverlaps);
 
 	template<typename AllocatorType>
-	bool GetOverlapsWithActor_Template(const AActor* Actor, TArray<FOverlapInfo, AllocatorType>& OutOverlaps) const;
+	bool GetOverlapsWithActor_TemplateVR(const AActor* Actor, TArray<FOverlapInfo, AllocatorType>& OutOverlaps) const;
 
 	/** Convert a set of overlaps from a sweep to a subset that includes only those at the end location (filling in OverlapsAtEndLocation). */
 	template<typename AllocatorType>
-	bool ConvertSweptOverlapsToCurrentOverlaps(TArray<FOverlapInfo, AllocatorType>& OutOverlapsAtEndLocation, const TOverlapArrayView& SweptOverlaps, int32 SweptOverlapsIndex, const FVector& EndLocation, const FQuat& EndRotationQuat);
+	bool ConvertSweptOverlapsToCurrentOverlapsVR(TArray<FOverlapInfo, AllocatorType>& OutOverlapsAtEndLocation, const TOverlapArrayView& SweptOverlaps, int32 SweptOverlapsIndex, const FVector& EndLocation, const FQuat& EndRotationQuat);
 
 
 public:
@@ -120,6 +130,14 @@ public:
 	// The default 2.15 Z offset is to account for floor hover from the character movement component.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VRExpansionLibrary")
 	FVector VRCapsuleOffset;
+
+	// Store last half height so that we can offset the net smoother based on changes to it
+	float LastCapsuleHalfHeight = 0.0f;
+
+	// Sample current and last capsule half heights and apply an offset based on the difference
+	void UpdateCharacterCapsuleOffset();
+
+
 
 	// If true we will stop tracking the camera / hmd until enabled again
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VRExpansionLibrary")
@@ -151,20 +169,31 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VRExpansionLibrary")
 	TEnumAsByte<ECollisionChannel> WalkingCollisionOverride;
 
-	/*ECollisionChannel GetVRCollisionObjectType()
+	bool bIsOverridingCollision = false;
+	TEnumAsByte<ECollisionChannel> OriginalCollision = ECollisionChannel::ECC_Pawn;
+
+	void SetCollisionOverride(bool bOverrideCollision)
 	{
-		if (bUseWalkingCollisionOverride)
-			return WalkingCollisionOverride;
-		else
-			return GetCollisionObjectType();
-	}*/
+		if (bOverrideCollision && !bIsOverridingCollision)
+		{
+			OriginalCollision = this->GetCollisionObjectType();
+			SetCollisionObjectType(WalkingCollisionOverride);
+			bIsOverridingCollision = true;
+		}
+		else if (!bOverrideCollision && bIsOverridingCollision)
+		{
+			SetCollisionObjectType(OriginalCollision);
+			bIsOverridingCollision = false;
+		}
+	}
 
 	FVector curCameraLoc;
 	FRotator curCameraRot;
 	FRotator StoredCameraRotOffset;
 
-	FVector lastCameraLoc;
-	FRotator lastCameraRot;
+	FVector lastCameraLoc = FVector::ZeroVector;
+	FRotator lastCameraRot = FRotator::ZeroRotator;
+	bool bTickedOnce = false;
 
 	// While misnamed, is true if we collided with a wall/obstacle due to the HMDs movement in this frame (not movement components)
 	UPROPERTY(BlueprintReadOnly, Category = "VRExpansionLibrary")
@@ -231,13 +260,22 @@ void inline UVRRootComponent::GenerateOffsetToWorld(bool bUpdateBounds, bool bGe
 		OffsetComponentToWorld = FTransform(CamRotOffset.Quaternion(), FVector(0, 0, bCenterCapsuleOnHMD ? curCameraLoc.Z : CapsuleHalfHeight) + CamRotOffset.RotateVector(VRCapsuleOffset), FVector(1.0f)) * GetComponentTransform();
 	}
 	else*/
+
+	if(owningVRChar && !owningVRChar->bRetainRoomscale)
 	{
-		OffsetComponentToWorld = FTransform(CamRotOffset.Quaternion(), FVector(curCameraLoc.X, curCameraLoc.Y, bCenterCapsuleOnHMD ? curCameraLoc.Z : CapsuleHalfHeight) + CamRotOffset.RotateVector(VRCapsuleOffset), FVector(1.0f)) * GetComponentTransform();
+		OffsetComponentToWorld = FTransform(CamRotOffset.Quaternion(), FVector(0.0f, 0.0f, bCenterCapsuleOnHMD ? curCameraLoc.Z : 0.0f), FVector(1.0f)) * GetComponentTransform();
+	}
+	else
+	{
+		OffsetComponentToWorld = FTransform(CamRotOffset.Quaternion(), FVector(curCameraLoc.X, curCameraLoc.Y, bCenterCapsuleOnHMD ? curCameraLoc.Z : CapsuleHalfHeight) + CamRotOffset.RotateVector(FVector(0.0f, 0.0f, VRCapsuleOffset.Z)), FVector(1.0f)) * GetComponentTransform();
 	}
 
 	if (owningVRChar)
 	{
 		owningVRChar->OffsetComponentToWorld = OffsetComponentToWorld;
+		
+		// Check if we need to move our parents NetSmoother into place
+		UpdateCharacterCapsuleOffset();
 	}
 
 	if (bUpdateBounds)
@@ -255,42 +293,4 @@ FORCEINLINE void UVRRootComponent::SetCapsuleHalfHeightVR(float HalfHeight, bool
 	}
 
 	SetCapsuleSizeVR(GetUnscaledCapsuleRadius(), HalfHeight, bUpdateOverlaps);
-}
-
-FORCEINLINE void UVRRootComponent::SetCapsuleSizeVR(float NewRadius, float NewHalfHeight, bool bUpdateOverlaps)
-{
-	SCOPE_CYCLE_COUNTER(STAT_VRRootSetCapsuleSize);
-
-	if (FMath::IsNearlyEqual(NewRadius, CapsuleRadius) && FMath::IsNearlyEqual(NewHalfHeight, CapsuleHalfHeight))
-	{
-		return;
-	}
-
-	CapsuleHalfHeight = FMath::Max3(0.f, NewHalfHeight, NewRadius);
-
-	// Make sure that our character parent updates its replicated var as well
-	if (AVRBaseCharacter * BaseChar = Cast<AVRBaseCharacter>(GetOwner()))
-	{
-		if (GetNetMode() < ENetMode::NM_Client && BaseChar->VRReplicateCapsuleHeight)
-			BaseChar->ReplicatedCapsuleHeight.CapsuleHeight = CapsuleHalfHeight;
-	}
-
-	CapsuleRadius = FMath::Max(0.f, NewRadius);
-	UpdateBounds();
-	UpdateBodySetup();
-	MarkRenderStateDirty();
-	GenerateOffsetToWorld();
-
-	// do this if already created
-	// otherwise, it hasn't been really created yet
-	if (bPhysicsStateCreated)
-	{
-		// Update physics engine collision shapes
-		BodyInstance.UpdateBodyScale(GetComponentTransform().GetScale3D(), true);
-
-		if (bUpdateOverlaps && IsCollisionEnabled() && GetOwner())
-		{
-			UpdateOverlaps();
-		}
-	}
 }

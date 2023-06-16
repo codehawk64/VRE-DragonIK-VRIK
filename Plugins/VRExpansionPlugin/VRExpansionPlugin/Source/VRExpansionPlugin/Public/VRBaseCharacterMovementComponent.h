@@ -8,6 +8,7 @@
 #include "VRBaseCharacterMovementComponent.generated.h"
 
 class AVRBaseCharacter;
+class AVRCharacter;
 struct FAIRequestID;
 struct FPathFollowingResult;
 
@@ -35,13 +36,15 @@ public:
 
 	/** BaseVR Character movement component belongs to */
 	UPROPERTY(Transient, DuplicateTransient)
-		TObjectPtr<AVRBaseCharacter> BaseVRCharacterOwner;
+		TObjectPtr<AVRCharacter> BaseVRCharacterOwner;
 
 	virtual void SetUpdatedComponent(USceneComponent* NewUpdatedComponent);
 
 	virtual void MoveAutonomous(float ClientTimeStamp, float DeltaTime, uint8 CompressedFlags, const FVector& NewAccel) override;
 	virtual void PerformMovement(float DeltaSeconds) override;
 	//virtual void ReplicateMoveToServer(float DeltaTime, const FVector& NewAcceleration) override;
+
+	virtual bool ClientUpdatePositionAfterServerUpdate() override;
 
 	// Overriding this to run the seated logic
 	virtual void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction) override;
@@ -112,13 +115,15 @@ public:
 	virtual void StoreSetTrackingPaused(bool bNewTrackingPaused);
 
 	// Perform a snap turn in line with the move action system
+	// If bRotateAroundCapsule is true then the rotation is around the offset capsule (neck) rather than the actual camera location
 	UFUNCTION(BlueprintCallable, Category = "VRMovement")
-		void PerformMoveAction_SnapTurn(float SnapTurnDeltaYaw, EVRMoveActionVelocityRetention VelocityRetention = EVRMoveActionVelocityRetention::VRMOVEACTION_Velocity_None, bool bFlagGripTeleport = false, bool bFlagCharacterTeleport = false);
+		void PerformMoveAction_SnapTurn(float SnapTurnDeltaYaw, EVRMoveActionVelocityRetention VelocityRetention = EVRMoveActionVelocityRetention::VRMOVEACTION_Velocity_None, bool bFlagGripTeleport = false, bool bFlagCharacterTeleport = false, bool bRotateAroundCapsule = true);
 
 	// Perform a rotation set in line with the move actions system
 	// This node specifically sets the FACING direction to a value, where your HMD is pointed
+	// If bRotateAroundCapsule is true then the rotation is around the offset capsule (neck) rather than the actual camera location
 	UFUNCTION(BlueprintCallable, Category = "VRMovement")
-		void PerformMoveAction_SetRotation(float NewYaw, EVRMoveActionVelocityRetention VelocityRetention = EVRMoveActionVelocityRetention::VRMOVEACTION_Velocity_None, bool bFlagGripTeleport = false, bool bFlagCharacterTeleport = false);
+		void PerformMoveAction_SetRotation(float NewYaw, EVRMoveActionVelocityRetention VelocityRetention = EVRMoveActionVelocityRetention::VRMOVEACTION_Velocity_None, bool bFlagGripTeleport = false, bool bFlagCharacterTeleport = false, bool bRotateAroundCapsule = true);
 
 	// Perform a teleport in line with the move action system
 	UFUNCTION(BlueprintCallable, Category = "VRMovement")
@@ -136,6 +141,8 @@ public:
 
 	FVRMoveActionArray MoveActionArray;
 
+	virtual void RegenerateOffset() {};
+
 	bool CheckForMoveAction();
 	virtual bool DoMASnapTurn(FVRMoveActionContainer& MoveAction);
 	virtual bool DoMASetRotation(FVRMoveActionContainer& MoveAction);
@@ -150,15 +157,7 @@ public:
 	bool bApplyAdditionalVRInputVectorAsNegative;
 	
 	// Rewind the relative movement that we had with the HMD
-	inline void RewindVRRelativeMovement()
-	{
-		if (bApplyAdditionalVRInputVectorAsNegative)
-		{
-			//FHitResult AHit;
-			MoveUpdatedComponent(-AdditionalVRInputVector, UpdatedComponent->GetComponentQuat(), false);
-			//SafeMoveUpdatedComponent(-AdditionalVRInputVector, UpdatedComponent->GetComponentQuat(), false, AHit);
-		}
-	}
+	void RewindVRRelativeMovement();
 
 	// Any movement above this value we will consider as have been a tracking jump and null out the movement in the character
 	// Raise this value higher if players are noticing freezing when moving quickly.

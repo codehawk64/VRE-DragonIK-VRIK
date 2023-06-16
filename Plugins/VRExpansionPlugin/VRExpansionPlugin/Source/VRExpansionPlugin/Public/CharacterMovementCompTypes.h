@@ -155,6 +155,9 @@ public:
 					//Pitch = FRotator::CompressAxisToShort(MoveActionRot.Pitch);
 					//Ar << Pitch;
 				}
+
+				bool bRotateAroundCapsule = MoveActionFlags & 0x08;
+				Ar.SerializeBits(&bRotateAroundCapsule, 1);
 			}
 			else
 			{
@@ -193,6 +196,10 @@ public:
 					//Ar << Pitch;
 					//MoveActionRot.Pitch = FRotator::DecompressAxisFromShort(Pitch);
 				}
+
+				bool bRotateAroundCapsule = false;
+				Ar.SerializeBits(&bRotateAroundCapsule, 1);
+				MoveActionFlags |= (uint8)(bRotateAroundCapsule << 3);
 			}
 
 			//bOutSuccess &= SerializePackedVector<100, 30>(MoveActionLoc, Ar);
@@ -625,7 +632,7 @@ struct VREXPANSIONPLUGIN_API FVRCharacterNetworkMoveData : public FCharacterNetw
 public:
 
 	FVector_NetQuantize100 VRCapsuleLocation;
-	FVector_NetQuantize100 LFDiff;
+	FVector/*_NetQuantize100*/ LFDiff;
 	uint16 VRCapsuleRotation;
 	EVRConjoinedMovementModes ReplicatedMovementMode;
 	FVRConditionalMoveRep ConditionalMoveReps;

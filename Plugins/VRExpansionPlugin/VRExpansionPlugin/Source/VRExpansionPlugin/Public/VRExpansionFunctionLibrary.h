@@ -4,7 +4,6 @@
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "VRBPDatatypes.h"
-#include "XRMotionControllerBase.h" // for GetHandEnumForSourceName()
 #include "VRExpansionFunctionLibrary.generated.h"
 
 class USplineComponent;
@@ -13,8 +12,9 @@ class UGripMotioncontroller;
 struct FGameplayTag;
 struct FGameplayTagContainer;
 
-enum class EControllerHand : uint8;
 
+enum class EControllerHand : uint8;
+enum class EBPHMDDeviceType : uint8;
 
 //General Advanced Sessions Log
 DECLARE_LOG_CATEGORY_EXTERN(VRExpansionFunctionLibraryLog, Log, All);
@@ -251,39 +251,24 @@ public:
 
 	/** Resets a Filter so that the first time it is used again it is clean */
 	UFUNCTION(BlueprintCallable, Category = "LowPassFilter_Peak")
-		static void ResetPeakLowPassFilter(UPARAM(ref) FBPLowPassPeakFilter& TargetPeakFilter)
-	{
-		TargetPeakFilter.Reset();
-	}
+		static void ResetPeakLowPassFilter(UPARAM(ref) FBPLowPassPeakFilter& TargetPeakFilter);
 
 	/** Adds an entry to the Peak low pass filter */
 	UFUNCTION(BlueprintCallable, Category = "LowPassFilter_Peak")
-		static void UpdatePeakLowPassFilter(UPARAM(ref) FBPLowPassPeakFilter& TargetPeakFilter, FVector NewSample)
-	{
-		TargetPeakFilter.AddSample(NewSample);
-	}
+		static void UpdatePeakLowPassFilter(UPARAM(ref) FBPLowPassPeakFilter& TargetPeakFilter, FVector NewSample);
 
 	/** Gets the peak value of the Peak Low Pass Filter */
 	UFUNCTION(BlueprintCallable, Category = "LowPassFilter_Peak")
-		static FVector GetPeak_PeakLowPassFilter(UPARAM(ref) FBPLowPassPeakFilter& TargetPeakFilter)
-	{
-		return TargetPeakFilter.GetPeak();
-	}
+		static FVector GetPeak_PeakLowPassFilter(UPARAM(ref) FBPLowPassPeakFilter& TargetPeakFilter);
 
 
 	/** Resets a Euro Low Pass Filter so that the first time it is used again it is clean */
 	UFUNCTION(BlueprintCallable, Category = "EuroLowPassFilter")
-	static void ResetEuroSmoothingFilter(UPARAM(ref) FBPEuroLowPassFilter& TargetEuroFilter)
-	{
-		TargetEuroFilter.ResetSmoothingFilter();
-	}
+	static void ResetEuroSmoothingFilter(UPARAM(ref) FBPEuroLowPassFilter& TargetEuroFilter);
 
 	/** Runs the smoothing function of a Euro Low Pass Filter */
 	UFUNCTION(BlueprintCallable, Category = "EuroLowPassFilter")
-	static void RunEuroSmoothingFilter(UPARAM(ref) FBPEuroLowPassFilter& TargetEuroFilter, FVector InRawValue, const float DeltaTime, FVector & SmoothedValue)
-	{
-		SmoothedValue = TargetEuroFilter.RunFilterSmoothing(InRawValue, DeltaTime);
-	}
+	static void RunEuroSmoothingFilter(UPARAM(ref) FBPEuroLowPassFilter& TargetEuroFilter, FVector InRawValue, const float DeltaTime, FVector & SmoothedValue);
 
 	// Applies the same laser smoothing that the vr editor uses to an array of points
 	UFUNCTION(BlueprintCallable, meta = (DisplayName = "Smooth Update Laser Spline"), Category = "VRExpansionLibrary")

@@ -1,12 +1,15 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "VRBaseCharacter.h"
+#include UE_INLINE_GENERATED_CPP_BY_NAME(VRBaseCharacter)
+
 #include "VRPlayerController.h"
 #include "NavigationSystem.h"
 #include "GameFramework/Controller.h"
 #include "Components/CapsuleComponent.h"
 #include "ParentRelativeAttachmentComponent.h"
 #include "GripMotionControllerComponent.h"
+#include "VRRootComponent.h"
 #include "VRPathFollowingComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "XRMotionControllerBase.h"
@@ -54,6 +57,15 @@ AVRBaseCharacter::AVRBaseCharacter(const FObjectInitializer& ObjectInitializer)
 	if (NetSmoother)
 	{
 		NetSmoother->SetupAttachment(RootComponent);
+
+		if (!bRetainRoomscale)
+		{
+			if (UVRRootComponent* MyRoot = Cast<UVRRootComponent>(RootComponent))
+			{
+				NetSmoother->SetRelativeLocation(MyRoot->GetTargetHeightOffset());
+				//VRProxyComponent->SetRelativeLocation(MyRoot->GetTargetHeightOffset());
+			}
+		}
 	}
 
 	VRProxyComponent = CreateDefaultSubobject<USceneComponent>(AVRBaseCharacter::VRProxyComponentName);
@@ -780,15 +792,19 @@ void AVRBaseCharacter::SetSeatRelativeLocationAndRotationVR(FVector DeltaLoc)
 	SetActorRelativeTransform(FTransform(NewRotation, NewLocation, GetCapsuleComponent()->GetRelativeScale3D()));
 }
 
+FVector AVRBaseCharacter::GetProjectedVRLocation() const
+{
+	return GetVRLocation_Inline();
+}
 
-FVector AVRBaseCharacter::AddActorWorldRotationVR(FRotator DeltaRot, bool bUseYawOnly)
+FVector AVRBaseCharacter::AddActorWorldRotationVR(FRotator DeltaRot, bool bUseYawOnly, bool bRotateAroundCapsule)
 {
 	AController* OwningController = GetController();
 
 	FVector NewLocation;
 	FRotator NewRotation;
 	FVector OrigLocation = GetActorLocation();
-	FVector PivotPoint = GetActorTransform().InverseTransformPosition(GetVRLocation_Inline());
+	FVector PivotPoint = GetActorTransform().InverseTransformPosition(bRotateAroundCapsule ? GetVRLocation_Inline() : GetProjectedVRLocation());
 	PivotPoint.Z = 0.0f;
 
 	NewRotation = bUseControllerRotationYaw && OwningController ? OwningController->GetControlRotation() : GetActorRotation();
@@ -811,14 +827,14 @@ FVector AVRBaseCharacter::AddActorWorldRotationVR(FRotator DeltaRot, bool bUseYa
 	return NewLocation - OrigLocation;
 }
 
-FVector AVRBaseCharacter::SetActorRotationVR(FRotator NewRot, bool bUseYawOnly, bool bAccountForHMDRotation)
+FVector AVRBaseCharacter::SetActorRotationVR(FRotator NewRot, bool bUseYawOnly, bool bAccountForHMDRotation, bool bRotateAroundCapsule)
 {
 	AController* OwningController = GetController();
 
 	FVector NewLocation;
 	FRotator NewRotation;
 	FVector OrigLocation = GetActorLocation();
-	FVector PivotPoint = GetActorTransform().InverseTransformPosition(GetVRLocation_Inline());
+	FVector PivotPoint = GetActorTransform().InverseTransformPosition(bRotateAroundCapsule ? GetVRLocation_Inline() : GetProjectedVRLocation());
 	PivotPoint.Z = 0.0f;
 
 	FRotator OrigRotation = bUseControllerRotationYaw && OwningController ? OwningController->GetControlRotation() : GetActorRotation();
@@ -849,13 +865,13 @@ FVector AVRBaseCharacter::SetActorRotationVR(FRotator NewRot, bool bUseYawOnly, 
 	return NewLocation - OrigLocation;
 }
 
-FVector AVRBaseCharacter::SetActorLocationAndRotationVR(FVector NewLoc, FRotator NewRot, bool bUseYawOnly, bool bAccountForHMDRotation, bool bTeleport)
+FVector AVRBaseCharacter::SetActorLocationAndRotationVR(FVector NewLoc, FRotator NewRot, bool bUseYawOnly, bool bAccountForHMDRotation, bool bTeleport, bool bRotateAroundCapsule)
 {
 	AController* OwningController = GetController();
 
 	FVector NewLocation;
 	FRotator NewRotation;
-	FVector PivotPoint = GetActorTransform().InverseTransformPosition(GetVRLocation_Inline());
+	FVector PivotPoint = GetActorTransform().InverseTransformPosition(bRotateAroundCapsule ? GetVRLocation_Inline() : GetProjectedVRLocation());
 	PivotPoint.Z = 0.0f;
 
 	if (bUseYawOnly)
@@ -881,6 +897,23 @@ FVector AVRBaseCharacter::SetActorLocationAndRotationVR(FVector NewLoc, FRotator
 
 	// Also setting actor rot because the control rot transfers to it anyway eventually
 	SetActorLocationAndRotation(NewLocation, NewRotation, false, nullptr, bTeleport ? ETeleportType::TeleportPhysics : ETeleportType::None);
+	return NewLocation - NewLoc;
+}
+
+FVector AVRBaseCharacter::SetActorLocationVR(FVector NewLoc, bool bTeleport, bool bSetCapsuleLocation)
+{
+	FVector NewLocation;
+	FRotator NewRotation;
+	FVector PivotOffsetVal = (bSetCapsuleLocation ? GetVRLocation_Inline() : GetProjectedVRLocation()) - GetActorLocation();
+	PivotOffsetVal.Z = 0.0f;
+
+
+	NewLocation = NewLoc - PivotOffsetVal;// +PivotPoint;// NewRotation.RotateVector(PivotPoint);
+						 //NewRotation = NewRot;
+
+
+	// Also setting actor rot because the control rot transfers to it anyway eventually
+	SetActorLocation(NewLocation, false, nullptr, bTeleport ? ETeleportType::TeleportPhysics : ETeleportType::None);
 	return NewLocation - NewLoc;
 }
 

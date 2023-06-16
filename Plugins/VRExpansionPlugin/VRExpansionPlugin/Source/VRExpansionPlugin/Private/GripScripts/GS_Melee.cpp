@@ -1,6 +1,8 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "GripScripts/GS_Melee.h"
+#include UE_INLINE_GENERATED_CPP_BY_NAME(GS_Melee)
+
 #include "VRGripInterface.h"
 #include "GameFramework/WorldSettings.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
@@ -39,6 +41,7 @@ UGS_Melee::UGS_Melee(const FObjectInitializer& ObjectInitializer) :
 	bIsHeld = false;
 	bCanEverTick = false;
 	bAlwaysTickPenetration = false;
+	bUsePrimaryHandSettingsWithOneHand = false;
 	COMType = EVRMeleeComType::VRPMELEECOM_BetweenHands;
 	bOnlyPenetrateWithTwoHands = false;
 }
@@ -752,6 +755,11 @@ void UGS_Melee::HandlePostPhysicsHandle(UGripMotionControllerComponent* Gripping
 	}
 	else
 	{
+		if (bUsePrimaryHandSettingsWithOneHand)
+		{
+			PrimaryHandPhysicsSettings.FillTo(HandleInfo);
+		}
+
 		//HandleInfo->bSetCOM = false; // Should i remove this?
 		HandleInfo->bSkipResettingCom = false;
 	}

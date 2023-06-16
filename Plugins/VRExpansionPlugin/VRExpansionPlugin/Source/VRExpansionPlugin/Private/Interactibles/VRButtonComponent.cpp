@@ -1,6 +1,8 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "Interactibles/VRButtonComponent.h"
+#include UE_INLINE_GENERATED_CPP_BY_NAME(VRButtonComponent)
+
 #include "Net/UnrealNetwork.h"
 //#include "VRGripInterface.h"
 #include "GripMotionControllerComponent.h"
@@ -58,9 +60,9 @@ void UVRButtonComponent::PreReplication(IRepChangedPropertyTracker & ChangedProp
 	// Replicate the levers initial transform if we are replicating movement
 	//DOREPLIFETIME_ACTIVE_OVERRIDE(UVRButtonComponent, InitialRelativeTransform, bReplicateMovement);
 	
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeLocation, bReplicateMovement);
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeRotation, bReplicateMovement);
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeScale3D, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeLocation, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeRotation, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeScale3D, bReplicateMovement);
 }
 
 void UVRButtonComponent::OnRegister()

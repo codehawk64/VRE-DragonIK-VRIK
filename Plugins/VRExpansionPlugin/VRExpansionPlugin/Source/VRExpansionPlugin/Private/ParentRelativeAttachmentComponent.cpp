@@ -1,6 +1,8 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "ParentRelativeAttachmentComponent.h"
+#include UE_INLINE_GENERATED_CPP_BY_NAME(ParentRelativeAttachmentComponent)
+
 #include "VRBaseCharacter.h"
 #include "VRCharacter.h"
 #include "IXRTrackingSystem.h"
@@ -103,7 +105,16 @@ void UParentRelativeAttachmentComponent::UpdateTracking(float DeltaTime)
 	}
 	else if (IsValid(AttachChar)) // New case to early out and with less calculations
 	{
-		SetRelativeRotAndLoc(AttachChar->VRRootReference->curCameraLoc, AttachChar->VRRootReference->StoredCameraRotOffset, DeltaTime);
+		if (AttachChar->bRetainRoomscale)
+		{
+			SetRelativeRotAndLoc(AttachChar->VRRootReference->curCameraLoc, AttachChar->VRRootReference->StoredCameraRotOffset, DeltaTime);
+		}
+		else
+		{
+			FVector CameraLoc = FVector(0.0f, 0.0f, AttachChar->VRRootReference->curCameraLoc.Z);
+			CameraLoc += AttachChar->VRRootReference->StoredCameraRotOffset.RotateVector(FVector(-AttachChar->VRRootReference->VRCapsuleOffset.X, -AttachChar->VRRootReference->VRCapsuleOffset.Y, 0.0f));
+			SetRelativeRotAndLoc(CameraLoc, AttachChar->VRRootReference->StoredCameraRotOffset, DeltaTime);
+		}
 	}
 	else if (IsLocallyControlled() && GEngine->XRSystem.IsValid() && GEngine->XRSystem->IsHeadTrackingAllowed())
 	{

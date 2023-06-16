@@ -1,6 +1,8 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "Interactibles/VRSliderComponent.h"
+#include UE_INLINE_GENERATED_CPP_BY_NAME(VRSliderComponent)
+
 #include "VRExpansionFunctionLibrary.h"
 #include "Components/SplineComponent.h"
 #include "GripMotionControllerComponent.h"
@@ -102,9 +104,9 @@ void UVRSliderComponent::PreReplication(IRepChangedPropertyTracker & ChangedProp
 	// Don't replicate if set to not do it
 	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(UVRSliderComponent, GameplayTags, bRepGameplayTags);
 
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeLocation, bReplicateMovement);
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeRotation, bReplicateMovement);
-	DOREPLIFETIME_ACTIVE_OVERRIDE_PRIVATE_PROPERTY(USceneComponent, RelativeScale3D, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeLocation, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeRotation, bReplicateMovement);
+	DOREPLIFETIME_ACTIVE_OVERRIDE_FAST(USceneComponent, RelativeScale3D, bReplicateMovement);
 }
 
 void UVRSliderComponent::OnRegister()
@@ -453,8 +455,9 @@ void UVRSliderComponent::CheckSliderProgress()
 	}
 	else if ((LastSliderProgressState != CurrentSliderProgress) || bHitEventThreshold)
 	{
+		float ModValue = FMath::Fmod(CurrentSliderProgress, SnapIncrement);
 		if ((!bSliderUsesSnapPoints && (CurrentSliderProgress == 1.0f || CurrentSliderProgress == 0.0f)) ||
-			(bSliderUsesSnapPoints && SnapIncrement > 0.f && FMath::IsNearlyEqual(FMath::Fmod(CurrentSliderProgress, SnapIncrement), 0.0f, 0.001f))
+			(bSliderUsesSnapPoints && SnapIncrement > 0.f && (FMath::IsNearlyEqual(ModValue, 0.0f, 0.001f) || FMath::IsNearlyEqual(ModValue, SnapIncrement, 0.00001f)))
 			)
 		{
 			// I am working with exacts here because of the clamping, it should actually work with no precision issues

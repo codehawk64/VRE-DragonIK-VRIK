@@ -1,6 +1,8 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "VRBPDatatypes.h"
+#include UE_INLINE_GENERATED_CPP_BY_NAME(VRBPDatatypes)
+
 #include "Chaos/ChaosEngineInterface.h"
 
 namespace VRDataTypeCVARs
@@ -12,15 +14,6 @@ namespace VRDataTypeCVARs
 		TEXT("vrexp.RepHighPrecisionTransforms"),
 		RepHighPrecisionTransforms,
 		TEXT("When on, will rep Quantized transforms at full precision, WARNING use at own risk, if this isn't the same setting client & server then it will crash.\n")
-		TEXT("0: Disable, 1: Enable"),
-		ECVF_Default);
-
-	// Double buffering tracked devices will smooth out hitches
-	static int32 DoubleBufferReplicatedTrackedDevices = 0;
-	FAutoConsoleVariableRef CVarDoubleBufferReplicatedTrackedDevices(
-		TEXT("vr.DoubleBufferReplicatedTrackedDevices"),
-		DoubleBufferReplicatedTrackedDevices,
-		TEXT("When on, will double buffer the replicated transforms for tracked devices.\n")
 		TEXT("0: Disable, 1: Enable"),
 		ECVF_Default);
 }
