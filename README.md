@@ -7,7 +7,7 @@ https://docs.google.com/document/d/1lBZXVa9KB47oCXRmiiz43ZfMsmGO3EzsZ_RnlbxDPyE/
 Download and play with the executable windows build here : https://drive.google.com/file/d/1ErjLQvJfe0Fzi9ypqu5ptEJ7S7QFo9Jq/view?usp=share_link (Playing the demo doesn't require the DragonIK plugin, but running the project requires it)
 How do I get set up?
 
-Here is a raw video recording of me copying the relevant features from the vre-dragonik project into a fresh new vre sample project. https://drive.google.com/file/d/159t-Lt8ze5wIYDAjYoMmFCBBqOVnqXZ7/view?usp=share_link
+Here is a raw video recording of me copying the relevant features from the vre-dragonik project into a fresh new vre sample project.[ https://drive.google.com/file/d/159t-Lt8ze5wIYDAjYoMmFCBBqOVnqXZ7/view?usp=share_link](https://www.youtube.com/watch?v=KZ9sqaCqjKY) But as a warning it's a bit outdated since it's recording. The gdoc will be more up to date in comparison.
 
 Current compatible versions for template: Latest Engine Version (Template is not kept to as many compatible versions as the plugin itself).
 
