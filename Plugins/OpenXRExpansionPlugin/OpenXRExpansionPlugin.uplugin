@@ -1,0 +1,42 @@
+{
+	"FileVersion": 3,
+	"Version": 5.2,
+	"VersionName": "5.2",
+	"FriendlyName": "OpenXRExpansionPlugin",
+	"Description": "An set of utility functions for OpenXR",
+	"Category": "Virtual Reality",
+	"CreatedBy": "Joshua (MordenTral) Statzer",
+	"CreatedByURL": "http://www.vreue4.com",
+	"DocsURL": "http://www.vreue4.com",
+	"MarketplaceURL": "",
+	"SupportURL": "http://www.vreue4.com",
+	"EnabledByDefault": false,
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"Installed": true,
+	"SupportedTargetPlatforms": [
+		"Win64",
+		"Linux",
+		"Android",
+		"HoloLens"
+	],
+	"Modules": [
+		{
+			"Name": "OpenXRExpansionPlugin",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault"
+		}
+		,
+		{
+		  "Name": "OpenXRExpansionEditor",
+		  "Type": "UnCookedOnly",
+		  "LoadingPhase": "PostEngineInit"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "OpenXR",
+			"Enabled": true
+		}
+	]
+}
