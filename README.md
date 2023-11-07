@@ -1,4 +1,4 @@
-[NOTE : This project runs in UE 5.2 in it's latest build but older engine examples are available in separate branches.]
+[NOTE : This project runs in UE 5.3 in it's latest build but older engine examples are available in separate branches.]
 
 A detailed gdoc write up to help with understanding the project structure and migrations. [A WIP document to be updated frequently]
 https://docs.google.com/document/d/1lBZXVa9KB47oCXRmiiz43ZfMsmGO3EzsZ_RnlbxDPyE/edit?usp=sharing
