@@ -7,6 +7,10 @@
 #include "VRExpansionFunctionLibrary.h"
 #include "Net/UnrealNetwork.h"
 
+#if WITH_PUSH_MODEL
+#include "Net/Core/PushModel/PushModel.h"
+#endif
+
   //=============================================================================
 UVRLeverComponent::UVRLeverComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -85,12 +89,19 @@ void UVRLeverComponent::GetLifetimeReplicatedProps(TArray< class FLifetimeProper
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	DOREPLIFETIME(UVRLeverComponent, InitialRelativeTransform);
-	//DOREPLIFETIME_CONDITION(UVRLeverComponent, bIsLerping, COND_InitialOnly);
+	// For std properties
+	FDoRepLifetimeParams PushModelParams{ COND_None, REPNOTIFY_OnChanged, /*bIsPushBased=*/true };
 
-	DOREPLIFETIME(UVRLeverComponent, bRepGameplayTags);
-	DOREPLIFETIME(UVRLeverComponent, bReplicateMovement);
-	DOREPLIFETIME_CONDITION(UVRLeverComponent, GameplayTags, COND_Custom);
+	DOREPLIFETIME_WITH_PARAMS_FAST(UVRLeverComponent, InitialRelativeTransform, PushModelParams);
+	//DOREPLIFETIME_CONDITION(UVRDialComponent, bIsLerping, COND_InitialOnly);
+
+	DOREPLIFETIME_WITH_PARAMS_FAST(UVRLeverComponent, bRepGameplayTags, PushModelParams);
+	DOREPLIFETIME_WITH_PARAMS_FAST(UVRLeverComponent, bReplicateMovement, PushModelParams);
+
+	// For properties with special conditions
+	FDoRepLifetimeParams PushModelParamsWithCondition{ COND_Custom, REPNOTIFY_OnChanged, /*bIsPushBased=*/true };
+
+	DOREPLIFETIME_WITH_PARAMS_FAST(UVRLeverComponent, GameplayTags, PushModelParamsWithCondition);
 }
 
 void UVRLeverComponent::PreReplication(IRepChangedPropertyTracker & ChangedPropertyTracker)
@@ -655,6 +666,11 @@ void UVRLeverComponent::ResetInitialLeverLocation(bool bAllowThrowingEvents)
 {
 	// Get our initial relative transform to our parent (or not if un-parented).
 	InitialRelativeTransform = this->GetRelativeTransform();
+
+#if WITH_PUSH_MODEL
+	MARK_PROPERTY_DIRTY_FROM_NAME(UVRLeverComponent, InitialRelativeTransform, this);
+#endif
+
 	CalculateCurrentAngle(InitialRelativeTransform);
 	ProccessCurrentState(bIsLerping, bAllowThrowingEvents, bAllowThrowingEvents);
 }
@@ -677,8 +693,8 @@ void UVRLeverComponent::CalculateCurrentAngle(FTransform & CurrentTransform)
 		FullCurrentAngle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(UpVec, FVector::UpVector)));
 		CurrentLeverAngle = FMath::RoundToFloat(FullCurrentAngle);
 
-		AllCurrentLeverAngles.Roll = FMath::Sign(UpVec.Y) * FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(FVector(0.0f, UpVec.Y, UpVec.Z), FVector::UpVector)));
-		AllCurrentLeverAngles.Pitch = FMath::Sign(UpVec.X) * FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(FVector(UpVec.X, 0.0f, UpVec.Z), FVector::UpVector)));
+		AllCurrentLeverAngles.Roll = FMath::Sign(UpVec.Y) * FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(FVector(0.0f, UpVec.Y, UpVec.Z).GetSafeNormal(), FVector::UpVector)));
+		AllCurrentLeverAngles.Pitch = FMath::Sign(UpVec.X) * FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(FVector(UpVec.X, 0.0f, UpVec.Z).GetSafeNormal(), FVector::UpVector)));
 
 		if (bBlendAxisValuesByAngleThreshold)
 		{
@@ -816,4 +832,32 @@ float UVRLeverComponent::CalcAngle(EVRInteractibleLeverAxis AxisToCalc, FVector 
 
 	bIsInFirstTick = false;
 	return ReturnAxis;
+}
+
+void UVRLeverComponent::SetRepGameplayTags(bool bNewRepGameplayTags)
+{
+	bRepGameplayTags = bNewRepGameplayTags;
+#if WITH_PUSH_MODEL
+	MARK_PROPERTY_DIRTY_FROM_NAME(UVRLeverComponent, bRepGameplayTags, this);
+#endif
+}
+
+void UVRLeverComponent::SetReplicateMovement(bool bNewReplicateMovement)
+{
+	bReplicateMovement = bNewReplicateMovement;
+#if WITH_PUSH_MODEL
+	MARK_PROPERTY_DIRTY_FROM_NAME(UVRLeverComponent, bReplicateMovement, this);
+#endif
+}
+
+FGameplayTagContainer& UVRLeverComponent::GetGameplayTags()
+{
+#if WITH_PUSH_MODEL
+	if (bRepGameplayTags)
+	{
+		MARK_PROPERTY_DIRTY_FROM_NAME(UVRLeverComponent, GameplayTags, this);
+	}
+#endif
+
+	return GameplayTags;
 }

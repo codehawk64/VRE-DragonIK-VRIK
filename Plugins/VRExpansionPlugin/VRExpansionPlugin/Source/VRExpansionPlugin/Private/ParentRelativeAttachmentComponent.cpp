@@ -3,6 +3,7 @@
 #include "ParentRelativeAttachmentComponent.h"
 #include UE_INLINE_GENERATED_CPP_BY_NAME(ParentRelativeAttachmentComponent)
 
+#include "Engine/Engine.h"
 #include "VRBaseCharacter.h"
 #include "VRCharacter.h"
 #include "IXRTrackingSystem.h"
@@ -50,7 +51,7 @@ void UParentRelativeAttachmentComponent::InitializeComponent()
 	Super::InitializeComponent();
 
 	// Update our tracking
-	if (!bUseFeetLocation && IsValid(AttachChar)) // New case to early out and with less calculations
+	if (!bUseFeetLocation && IsValid(AttachChar) && IsValid(AttachChar->VRReplicatedCamera)) // New case to early out and with less calculations
 	{
 		SetRelativeTransform(AttachChar->VRReplicatedCamera->GetRelativeTransform());
 	}

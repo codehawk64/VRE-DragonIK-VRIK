@@ -3,6 +3,9 @@
 #include "ReplicatedVRCameraComponent.h"
 #include UE_INLINE_GENERATED_CPP_BY_NAME(ReplicatedVRCameraComponent)
 
+#include "CoreMinimal.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
 #include "VRBaseCharacter.h"
 #include "VRCharacter.h"
@@ -11,6 +14,9 @@
 #include "IXRCamera.h"
 #include "Rendering/MotionVectorSimulation.h"
 
+#if WITH_PUSH_MODEL
+#include "Net/Core/PushModel/PushModel.h"
+#endif
 
 UReplicatedVRCameraComponent::UReplicatedVRCameraComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -41,7 +47,6 @@ UReplicatedVRCameraComponent::UReplicatedVRCameraComponent(const FObjectInitiali
 	MaximumTrackedBounds = 1028;
 
 	bSetPositionDuringTick = false;
-	bSmoothReplicatedMotion = false;
 	bLerpingPosition = false;
 	bReppedOnce = false;
 
@@ -70,28 +75,27 @@ void UReplicatedVRCameraComponent::GetLifetimeReplicatedProps(TArray< class FLif
 	DISABLE_REPLICATED_PRIVATE_PROPERTY(USceneComponent, RelativeRotation);
 	DISABLE_REPLICATED_PRIVATE_PROPERTY(USceneComponent, RelativeScale3D);
 
+	// For properties with special conditions
+	FDoRepLifetimeParams PushModelParamsWithCondition{ COND_SkipOwner, REPNOTIFY_OnChanged, /*bIsPushBased=*/true };
+
 	// Skipping the owner with this as the owner will use the location directly
-	DOREPLIFETIME_CONDITION(UReplicatedVRCameraComponent, ReplicatedCameraTransform, COND_SkipOwner);
-	DOREPLIFETIME(UReplicatedVRCameraComponent, NetUpdateRate);
-	DOREPLIFETIME(UReplicatedVRCameraComponent, bSmoothReplicatedMotion);
+	DOREPLIFETIME_WITH_PARAMS_FAST(UReplicatedVRCameraComponent, ReplicatedCameraTransform, PushModelParamsWithCondition);
+
+	// For std properties
+	FDoRepLifetimeParams PushModelParams{ COND_None, REPNOTIFY_OnChanged, /*bIsPushBased=*/true };
+
+	DOREPLIFETIME_WITH_PARAMS_FAST(UReplicatedVRCameraComponent, NetUpdateRate, PushModelParams);
+	//DOREPLIFETIME(UReplicatedVRCameraComponent, bSmoothReplicatedMotion); // This doesn't need to be replicated
 	//DOREPLIFETIME(UReplicatedVRCameraComponent, bReplicateTransform);
 }
-
-// Just skipping this, it generates warnings for attached meshes when using this method of denying transform replication
-/*void UReplicatedVRCameraComponent::PreReplication(IRepChangedPropertyTracker & ChangedPropertyTracker)
-{
-	Super::PreReplication(ChangedPropertyTracker);
-
-	// Don't ever replicate these, they are getting replaced by my custom send anyway
-	DOREPLIFETIME_ACTIVE_OVERRIDE(USceneComponent, RelativeLocation, false);
-	DOREPLIFETIME_ACTIVE_OVERRIDE(USceneComponent, RelativeRotation, false);
-	DOREPLIFETIME_ACTIVE_OVERRIDE(USceneComponent, RelativeScale3D, false);
-}*/
 
 void UReplicatedVRCameraComponent::Server_SendCameraTransform_Implementation(FBPVRComponentPosRep NewTransform)
 {
 	// Store new transform and trigger OnRep_Function
 	ReplicatedCameraTransform = NewTransform;
+#if WITH_PUSH_MODEL
+	MARK_PROPERTY_DIRTY_FROM_NAME(UReplicatedVRCameraComponent, ReplicatedCameraTransform, this);
+#endif
 
 	// Don't call on rep on the server if the server controls this controller
 	if (!bHasAuthority)
@@ -146,7 +150,7 @@ bool UReplicatedVRCameraComponent::HasTrackingParameters()
 void UReplicatedVRCameraComponent::ApplyTrackingParameters(FVector &OriginalPosition, bool bSkipLocZero)
 {
 	// I'm keeping the original values here as it lets me send them out for seated mode
-	if (!bSkipLocZero /*&& ((AttachChar && !AttachChar->bRetainRoomscale))*/)
+	if (!bSkipLocZero && (AttachChar && !AttachChar->bRetainRoomscale))
 	{
 		OriginalPosition.X = 0;
 		OriginalPosition.Y = 0;	
@@ -191,7 +195,7 @@ void UReplicatedVRCameraComponent::UpdateTracking(float DeltaTime)
 			{
 				if (HasTrackingParameters())
 				{
-					ApplyTrackingParameters(Position);
+					ApplyTrackingParameters(Position, true);
 				}
 
 				ReplicatedCameraTransform.Position = Position;
@@ -204,7 +208,7 @@ void UReplicatedVRCameraComponent::UpdateTracking(float DeltaTime)
 					Position.Y = 0.0f;
 
 					FRotator StoredCameraRotOffset = FRotator::ZeroRotator;
-					if (AttachChar->VRMovementReference->GetReplicatedMovementMode() == EVRConjoinedMovementModes::C_VRMOVE_Seated)
+					if (AttachChar->VRMovementReference && AttachChar->VRMovementReference->GetReplicatedMovementMode() == EVRConjoinedMovementModes::C_VRMOVE_Seated)
 					{
 						AttachChar->SeatInformation.InitialRelCameraTransform.Rotator();
 					}
@@ -244,7 +248,7 @@ void UReplicatedVRCameraComponent::RunNetworkedSmoothing(float DeltaTime)
 	if (AttachChar && !AttachChar->bRetainRoomscale)
 	{
 		FRotator StoredCameraRotOffset = FRotator::ZeroRotator;
-		if (AttachChar->VRMovementReference->GetReplicatedMovementMode() == EVRConjoinedMovementModes::C_VRMOVE_Seated)
+		if (AttachChar->VRMovementReference && AttachChar->VRMovementReference->GetReplicatedMovementMode() == EVRConjoinedMovementModes::C_VRMOVE_Seated)
 		{
 			AttachChar->SeatInformation.InitialRelCameraTransform.Rotator();
 		}
@@ -458,7 +462,7 @@ void UReplicatedVRCameraComponent::HandleXRCamera()
 					{
 						if (HasTrackingParameters())
 						{
-							ApplyTrackingParameters(Position);
+							ApplyTrackingParameters(Position, true);
 						}
 
 						ReplicatedCameraTransform.Position = Position;
@@ -470,7 +474,7 @@ void UReplicatedVRCameraComponent::HandleXRCamera()
 							Position.X = 0.0f;
 							Position.Y = 0.0f;
 							//FRotator OffsetRotator = 
-							if (AttachChar->VRMovementReference->GetReplicatedMovementMode() != EVRConjoinedMovementModes::C_VRMOVE_Seated)
+							if (AttachChar->VRMovementReference && AttachChar->VRMovementReference->GetReplicatedMovementMode() != EVRConjoinedMovementModes::C_VRMOVE_Seated)
 							{
 								AttachChar->SeatInformation.InitialRelCameraTransform.Rotator();
 
@@ -506,6 +510,11 @@ void UReplicatedVRCameraComponent::HandleXRCamera()
 	}
 }
 
+FTransform UReplicatedVRCameraComponent::GetHMDTrackingTransform()
+{
+	return FTransform(ReplicatedCameraTransform.Rotation, ReplicatedCameraTransform.Position);
+}
+
 void UReplicatedVRCameraComponent::OnRep_ReplicatedCameraTransform()
 {
     if (GetNetMode() < ENetMode::NM_Client && HasTrackingParameters())
@@ -521,7 +530,7 @@ void UReplicatedVRCameraComponent::OnRep_ReplicatedCameraTransform()
 		CameraPosition.Y = 0;
 
 		FRotator StoredCameraRotOffset = FRotator::ZeroRotator;
-		if (AttachChar->VRMovementReference->GetReplicatedMovementMode() == EVRConjoinedMovementModes::C_VRMOVE_Seated)
+		if (AttachChar->VRMovementReference && AttachChar->VRMovementReference->GetReplicatedMovementMode() == EVRConjoinedMovementModes::C_VRMOVE_Seated)
 		{
 			AttachChar->SeatInformation.InitialRelCameraTransform.Rotator();
 		}
@@ -570,4 +579,19 @@ void UReplicatedVRCameraComponent::OnRep_ReplicatedCameraTransform()
     }
     else
         SetRelativeLocationAndRotation(CameraPosition, ReplicatedCameraTransform.Rotation);
+}
+
+void UReplicatedVRCameraComponent::SetNetUpdateRate(float NewNetUpdateRate)
+{
+	NetUpdateRate = NewNetUpdateRate;
+#if WITH_PUSH_MODEL
+	MARK_PROPERTY_DIRTY_FROM_NAME(UReplicatedVRCameraComponent, NetUpdateRate, this);
+#endif
+}
+
+bool UReplicatedVRCameraComponent::IsLocallyControlled() const
+{
+	// I like epics new authority check more than my own
+	const AActor* MyOwner = GetOwner();
+	return MyOwner->HasLocalNetOwner();
 }

@@ -7,7 +7,9 @@
 #include "GameplayTagAssetInterface.h"
 #include "Components/SceneComponent.h"
 #include "Animation/AnimInstance.h"
+#include "Animation/BoneReference.h"
 #include "Misc/Guid.h"
+
 #include "HandSocketComponent.generated.h"
 
 class USkeletalMeshComponent;
@@ -114,6 +116,7 @@ public:
 	// Target Slot Prefix
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Socket Data")
 		FName SlotPrefix;
+	
 
 	// If true the hand meshes relative transform will be de-coupled from the hand socket
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hand Socket Data")
@@ -147,21 +150,30 @@ public:
 		bool bOnlyFlipRotation;
 
 	// If true then this hand socket will always be considered "in range" and checked against others for lowest distance
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Socket Data")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Socket Data|Searching")
 		bool bAlwaysInRange;
 
 	// If true and there are multiple hand socket components in range with this setting
 	// Then the default behavior will compare closest rotation on them all to pick one
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Socket Data")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Socket Data|Searching")
 		bool bMatchRotation;
 
 	// If true then the hand socket will not be considered for search operations
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Socket Data")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Socket Data|Control")
 		bool bDisabled;
+
+	/*** 
+	//	If true then the hand socket will be locked in place during gameplay and not moved with the actor (saving performance)
+	//  Generally you want this unless you are moving a hand socket manually during play for custom grip offsetting logic
+	//  If you need the relative location of the hand socket for game logic, get the LockedRelativeTransform variable if bLockInPlace is enabled.
+	//  Defaulted off currently for bug testing
+	***/
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Hand Socket Data|Control")
+		bool bLockInPlace;
 
 	// Snap distance to use if you want to override the defaults.
 	// Will be ignored if == 0.0f or bAlwaysInRange is true
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Socket Data")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Socket Data|Searching")
 		float OverrideDistance;
 
 	// If true we are expected to have a list of custom deltas for bones to overlay onto our base pose
@@ -178,20 +190,20 @@ public:
 		TObjectPtr<UAnimSequence> HandTargetAnimation;
 
 	// Scale to apply when mirroring the hand, adjust to visualize your off hand correctly
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Socket Data")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Socket Data|Mirroring")
 		FVector MirroredScale;
 
 #if WITH_EDITORONLY_DATA
 	// If true we will attempt to only show editing widgets for bones matching the _l or _r postfixes
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Animation")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Animation|Misc")
 		bool bFilterBonesByPostfix;
 
 	// The postfix to filter by
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Animation")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Animation|Misc")
 		FString FilterPostfix;
 
 	// An array of bones to skip when looking to edit deltas, can help clean up the interaction if you have extra bones in the heirarchy
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Animation")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hand Animation|Misc")
 		TArray<FName> BonesToSkip;
 
 	FTransform GetBoneTransformAtTime(UAnimSequence* MyAnimSequence, /*float AnimTime,*/ int BoneIdx, FName BoneName, bool bUseRawDataOnly);
@@ -221,6 +233,26 @@ public:
 	*/
 	UFUNCTION(BlueprintCallable, Category = "Hand Socket Data", meta = (bIgnoreSelf = "true"))
 		static bool GetAnimationSequenceAsPoseSnapShot(UAnimSequence * InAnimationSequence, FPoseSnapshot& OutPoseSnapShot, USkeletalMeshComponent* TargetMesh = nullptr, bool bSkipRootBone = false, bool bFlipHand = false);
+
+
+	/**
+	* Gets all hand socket components in the entire level (this is a slow operation, DO NOT run this on tick)
+	*/
+	UFUNCTION(BlueprintCallable, Category = "Hand Socket Data")
+		static void GetAllHandSocketComponents(TArray<UHandSocketComponent*>& OutHandSockets);
+
+	/**
+	* Gets all hand socket components within a set range of a world location (this is a slow operation, DO NOT run this on tick)
+	*/
+	UFUNCTION(BlueprintCallable, Category = "Hand Socket Data")
+		static bool GetAllHandSocketComponentsInRange(FVector SearchFromWorldLocation, float SearchRange, TArray<UHandSocketComponent*>& OutHandSockets);
+
+	/**
+	* Gets the closest hand socket component within a set range of a world location (this is a slow operation, DO NOT run this on tick)
+	* Must check the output for validity
+	*/
+	UFUNCTION(BlueprintCallable, Category = "Hand Socket Data")
+		static UHandSocketComponent* GetClosestHandSocketComponentInRange(FVector SearchFromWorldLocation, float SearchRange);
 
 	// Returns the target relative transform of the hand
 	//UFUNCTION(BlueprintCallable, Category = "Hand Socket Data")
@@ -379,6 +411,8 @@ public:
 		TagContainer = GameplayTags;
 	}
 
+	protected:
+
 	/** Tags that are set on this object */
 	UPROPERTY(EditAnywhere, Replicated, BlueprintReadWrite, Category = "GameplayTags")
 		FGameplayTagContainer GameplayTags;
@@ -392,6 +426,14 @@ public:
 	// Overrides the default of : true and allows for controlling it like in an actor, should be default of off normally with grippable components
 	UPROPERTY(EditAnywhere, Replicated, BlueprintReadWrite, Category = "VRGripInterface|Replication")
 		bool bReplicateMovement;
+
+	public:
+		FGameplayTagContainer& GetGameplayTags();
+
+		void SetRepGameplayTags(bool NewRepGameplayTags);
+		inline bool GetRepGameplayTags() { return bRepGameplayTags; };
+		void SetReplicateMovement(bool NewReplicateMovement);
+		inline bool GetReplicateMovement() { return bReplicateMovement; };
 
 	/** mesh component to indicate hand placement */
 #if WITH_EDITORONLY_DATA
@@ -438,10 +480,5 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, transient, Category = "Socket Data")
 		TObjectPtr<UHandSocketComponent> OwningSocket;
 
-	virtual void NativeInitializeAnimation() override
-	{
-		Super::NativeInitializeAnimation();
-
-		OwningSocket = Cast<UHandSocketComponent>(GetOwningComponent()->GetAttachParent());
-	}
+	virtual void NativeInitializeAnimation() override;
 };

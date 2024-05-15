@@ -17,6 +17,7 @@
 #include "IStereoLayers.h"
 #include "IHeadMountedDisplay.h"
 #include "PrimitiveViewRelevance.h"
+#include "StereoLayerAdditionalFlagsManager.h"
 #include "PrimitiveSceneProxy.h"
 #include "UObject/ConstructorHelpers.h"
 #include "EngineGlobals.h"
@@ -346,7 +347,6 @@ void UVRStereoWidgetRenderComponent::RenderWidget(float DeltaTime)
 		const EPixelFormat requestedFormat = FSlateApplication::Get().GetRenderer()->GetSlateRecommendedColorFormat();
 		RenderTarget = NewObject<UTextureRenderTarget2D>();
 		check(RenderTarget);
-		RenderTarget->AddToRoot();
 		RenderTarget->ClearColor = RenderTargetClearColor;
 		RenderTarget->TargetGamma = WidgetRenderGamma;
 		RenderTarget->InitCustomFormat(TextureSize.X, TextureSize.Y, requestedFormat /*PF_B8G8R8A8*/, false);
@@ -385,9 +385,9 @@ UVRStereoWidgetComponent::UVRStereoWidgetComponent(const FObjectInitializer& Obj
 	//, StereoLayerType(SLT_TrackerLocked)
 	//, StereoLayerShape(SLSH_QuadLayer)
 	, Priority(0)
+	, LayerId(IStereoLayers::FLayerDesc::INVALID_LAYER_ID)
 	, bIsDirty(true)
 	, bTextureNeedsUpdate(false)
-	, LayerId(IStereoLayers::FLayerDesc::INVALID_LAYER_ID)
 	, LastTransform(FTransform::Identity)
 	, bLastVisible(false)
 {
@@ -411,6 +411,16 @@ UVRStereoWidgetComponent::UVRStereoWidgetComponent(const FObjectInitializer& Obj
 UVRStereoWidgetComponent::~UVRStereoWidgetComponent()
 {
 }
+
+
+void UVRStereoWidgetComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (EndPlayReason == EEndPlayReason::EndPlayInEditor || EndPlayReason == EEndPlayReason::Quit)
+	{
+		//FStereoLayerAdditionalFlagsManager::Destroy();
+	}
+}
+
 
 void UVRStereoWidgetComponent::BeginDestroy()
 {
@@ -576,28 +586,31 @@ void UVRStereoWidgetComponent::TickComponent(float DeltaTime, enum ELevelTick Ti
 					bool bHandledTransform = false;
 					if (AVRBaseCharacter* BaseVRChar = Cast<AVRBaseCharacter>(mpawn))
 					{
-						if (USceneComponent* CameraParent = BaseVRChar->VRReplicatedCamera->GetAttachParent())
+						if (BaseVRChar->VRReplicatedCamera)
 						{
-							FTransform DeltaTrans = FTransform::Identity;
-							if (!BaseVRChar->bRetainRoomscale)
+							if (USceneComponent* CameraParent = BaseVRChar->VRReplicatedCamera->GetAttachParent())
 							{
-								FVector HMDLoc;
-								FQuat HMDRot;
-								GEngine->XRSystem->GetCurrentPose(IXRTrackingSystem::HMDDeviceId, HMDRot, HMDLoc);
-
-								HMDLoc.Z = 0.0f;
-
-								if (AVRCharacter* VRChar = Cast<AVRCharacter>(mpawn))
+								FTransform DeltaTrans = FTransform::Identity;
+								if (!BaseVRChar->bRetainRoomscale)
 								{
-									HMDLoc += UVRExpansionFunctionLibrary::GetHMDPureYaw_I(HMDRot.Rotator()).RotateVector(FVector(VRChar->VRRootReference->VRCapsuleOffset.X, VRChar->VRRootReference->VRCapsuleOffset.Y, 0.0f));
+									FVector HMDLoc;
+									FQuat HMDRot;
+									GEngine->XRSystem->GetCurrentPose(IXRTrackingSystem::HMDDeviceId, HMDRot, HMDLoc);
+
+									HMDLoc.Z = 0.0f;
+
+									if (AVRCharacter* VRChar = Cast<AVRCharacter>(mpawn))
+									{
+										HMDLoc += UVRExpansionFunctionLibrary::GetHMDPureYaw_I(HMDRot.Rotator()).RotateVector(FVector(VRChar->VRRootReference->VRCapsuleOffset.X, VRChar->VRRootReference->VRCapsuleOffset.Y, 0.0f));
+									}
+
+									DeltaTrans = FTransform(FQuat::Identity, HMDLoc, FVector(1.0f));
 								}
 
-								DeltaTrans = FTransform(FQuat::Identity, HMDLoc, FVector(1.0f));
+								Transform = OffsetTransform.GetRelativeTransform(CameraParent->GetComponentTransform());
+								Transform = (FTransform(FRotator(0.f, -180.f, 0.f)) * Transform) * DeltaTrans;
+								bHandledTransform = true;
 							}
-
-							Transform = OffsetTransform.GetRelativeTransform(CameraParent->GetComponentTransform());
-							Transform = (FTransform(FRotator(0.f, -180.f, 0.f)) * Transform) * DeltaTrans;
-							bHandledTransform = true;
 						}
 					}
 					else if (UCameraComponent* Camera = mpawn->FindComponentByClass<UCameraComponent>())
@@ -712,6 +725,13 @@ void UVRStereoWidgetComponent::TickComponent(float DeltaTime, enum ELevelTick Ti
 		LayerDsec.Flags |= (bQuadPreserveTextureRatio) ? IStereoLayers::LAYER_FLAG_QUAD_PRESERVE_TEX_RATIO : 0;
 		LayerDsec.Flags |= (bSupportsDepth) ? IStereoLayers::LAYER_FLAG_SUPPORT_DEPTH : 0;
 		LayerDsec.Flags |= (!bCurrVisible) ? IStereoLayers::LAYER_FLAG_HIDDEN : 0;
+
+		// Would love to implement but they aren't exporting the symbols
+		/*TSharedPtr<FStereoLayerAdditionalFlagsManager> FlagsManager = FStereoLayerAdditionalFlagsManager::Get();
+		for (FName& Flag : AdditionalFlags)
+		{
+			LayerDsec.Flags |= FlagsManager->GetFlagValue(Flag);
+		}*/
 
 		// Fix this later when WorldLocked is no longer wrong.
 		switch (Space)
@@ -1091,7 +1111,7 @@ public:
 		bShadowMapped = false;
 	}
 
-	virtual void OnTransformChanged() override
+	virtual void OnTransformChanged(FRHICommandListBase& RHICmdList) override
 	{
 		Origin = GetLocalToWorld().GetOrigin();
 	}

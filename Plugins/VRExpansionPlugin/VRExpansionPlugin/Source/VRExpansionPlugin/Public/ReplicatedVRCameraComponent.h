@@ -106,6 +106,11 @@ public:
 	UPROPERTY(EditDefaultsOnly, ReplicatedUsing = OnRep_ReplicatedCameraTransform, Category = "ReplicatedCamera|Networking")
 	FBPVRComponentPosRep ReplicatedCameraTransform;
 
+	// Returns the actual tracked transform of the HMD, as with RetainRoomscale = False we do not set the camera to it
+	// Can also just use the HMD function library but this is a fast way if you already have a camera reference
+	UFUNCTION(BlueprintPure, Category = "ReplicatedCamera|Tracking")
+		FTransform GetHMDTrackingTransform();
+
 	FVector LastUpdatesRelativePosition = FVector::ZeroVector;
 	FRotator LastUpdatesRelativeRotation = FRotator::ZeroRotator;
 
@@ -115,9 +120,10 @@ public:
 	// Run the smoothing step
 	void RunNetworkedSmoothing(float DeltaTime);
 
+
 	// Whether to smooth (lerp) between ticks for the replicated motion, DOES NOTHING if update rate is larger than FPS!
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Replicated, Category = "ReplicatedCamera|Networking")
-		bool bSmoothReplicatedMotion;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ReplicatedCamera|Networking")
+		bool bSmoothReplicatedMotion = true;
 
 	// If true then we will use exponential smoothing with buffered correction
 	UPROPERTY(EditAnywhere, Category = "ReplicatedCamera|Networking|Smoothing", meta = (editcondition = "bSmoothReplicatedMotion"))
@@ -138,13 +144,18 @@ public:
 	UFUNCTION()
     virtual void OnRep_ReplicatedCameraTransform();
 
+protected:
 	// Rate to update the position to the server, 100htz is default (same as replication rate, should also hit every tick).
 		// On dedicated servers the update rate should be at or lower than the server tick rate for smoothing to work
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Replicated, Category = "ReplicatedCamera|Networking")
 	float NetUpdateRate;
+public:
 
 	// Used in Tick() to accumulate before sending updates, didn't want to use a timer in this case.
 	float NetUpdateCount;
+
+	float GetNetUpdateRate() { return NetUpdateRate; }
+	void SetNetUpdateRate(float NewNetUpdateRate);
 
 	// I'm sending it unreliable because it is being resent pretty often
 	UFUNCTION(Unreliable, Server, WithValidation)
@@ -155,14 +166,7 @@ public:
 	VRBaseCharTransformRPC_Pointer OverrideSendTransform;
 
 	// Need this as I can't think of another way for an actor component to make sure it isn't on the server
-	inline bool IsLocallyControlled() const
-	{
-		// I like epics new authority check more than my own
-		const AActor* MyOwner = GetOwner();
-		return MyOwner->HasLocalNetOwner();
-		//const APawn* MyPawn = Cast<APawn>(MyOwner);
-		//return MyPawn ? MyPawn->IsLocallyControlled() : false;// (MyOwner->Role == ENetRole::ROLE_Authority);
-	}
+	bool IsLocallyControlled() const;
 
 	//bool IsServer();
 };

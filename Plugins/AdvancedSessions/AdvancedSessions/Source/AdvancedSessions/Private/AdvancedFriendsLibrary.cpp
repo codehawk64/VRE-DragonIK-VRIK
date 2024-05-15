@@ -138,7 +138,7 @@ void UAdvancedFriendsLibrary::GetFriend(APlayerController *PlayerController, con
 	TSharedPtr<FOnlineFriend> fr = FriendsInterface->GetFriend(Player->GetControllerId(), *FriendUniqueNetId.GetUniqueNetId(), EFriendsLists::ToString(EFriendsLists::Default));
 	if (fr.IsValid())
 	{
-		FOnlineUserPresence pres = fr->GetPresence();
+		const FOnlineUserPresence& pres = fr->GetPresence();
 		Friend.DisplayName = fr->GetDisplayName();
 		Friend.OnlineState = ((EBPOnlinePresenceState)((int32)pres.Status.State));
 		Friend.RealName = fr->GetRealName();
@@ -151,7 +151,8 @@ void UAdvancedFriendsLibrary::GetFriend(APlayerController *PlayerController, con
 		Friend.PresenceInfo.bIsPlaying = pres.bIsPlaying;
 		Friend.PresenceInfo.bIsPlayingThisGame = pres.bIsPlayingThisGame;
 		Friend.PresenceInfo.PresenceState = ((EBPOnlinePresenceState)((int32)pres.Status.State));
-		Friend.PresenceInfo.StatusString = pres.Status.StatusStr;
+		// #TODO: Check back in on this in shipping, epic is missing the UTF8_TO_TCHAR call on converting this and its making an invalid string
+		//Friend.PresenceInfo.StatusString = pres.Status.StatusStr;
 	}
 }
 
@@ -247,28 +248,34 @@ void UAdvancedFriendsLibrary::GetStoredFriendsList(APlayerController *PlayerCont
 
 
 	TArray< TSharedRef<FOnlineFriend> > FriendList;
-	FriendsInterface->GetFriendsList(Player->GetControllerId(), EFriendsLists::ToString((EFriendsLists::Default)), FriendList);
-
-	for (int32 i = 0; i < FriendList.Num(); i++)
+	if (FriendsInterface->GetFriendsList(Player->GetControllerId(), EFriendsLists::ToString((EFriendsLists::Default)), FriendList))
 	{
-		TSharedRef<FOnlineFriend> Friend = FriendList[i];
-		FBPFriendInfo BPF;
-		FOnlineUserPresence pres = Friend->GetPresence();
+		for (int32 i = 0; i < FriendList.Num(); i++)
+		{
+			FBPFriendInfo BPF;
+			const FOnlineUserPresence& pres = FriendList[i]->GetPresence();
 
-		BPF.OnlineState = ((EBPOnlinePresenceState)((int32)pres.Status.State));
-		BPF.DisplayName = Friend->GetDisplayName();
-		BPF.RealName = Friend->GetRealName();
-		BPF.UniqueNetId.SetUniqueNetId(Friend->GetUserId());
-		BPF.bIsPlayingSameGame = pres.bIsPlayingThisGame;
+			BPF.OnlineState = ((EBPOnlinePresenceState)((int32)pres.Status.State));
+			BPF.DisplayName = FriendList[i]->GetDisplayName();
+			BPF.RealName = FriendList[i]->GetRealName();
+			BPF.UniqueNetId.SetUniqueNetId(FriendList[i]->GetUserId());
+			BPF.bIsPlayingSameGame = pres.bIsPlayingThisGame;
 
-		BPF.PresenceInfo.bIsOnline = pres.bIsOnline;
-		BPF.PresenceInfo.bHasVoiceSupport = pres.bHasVoiceSupport;
-		BPF.PresenceInfo.bIsPlaying = pres.bIsPlaying;
-		BPF.PresenceInfo.PresenceState = ((EBPOnlinePresenceState)((int32)pres.Status.State));
-		BPF.PresenceInfo.StatusString = pres.Status.StatusStr;
-		BPF.PresenceInfo.bIsJoinable = pres.bIsJoinable;
-		BPF.PresenceInfo.bIsPlayingThisGame = pres.bIsPlayingThisGame;
+			BPF.PresenceInfo.bIsOnline = pres.bIsOnline;
+			BPF.PresenceInfo.bHasVoiceSupport = pres.bHasVoiceSupport;
+			BPF.PresenceInfo.bIsPlaying = pres.bIsPlaying;
+			BPF.PresenceInfo.PresenceState = ((EBPOnlinePresenceState)((int32)pres.Status.State));
+			// #TODO: Check back in on this in shipping, epic is missing the UTF8_TO_TCHAR call on converting this and its making an invalid string
+			//BPF.PresenceInfo.StatusString = pres.Status.StatusStr;
+			BPF.PresenceInfo.bIsJoinable = pres.bIsJoinable;
+			BPF.PresenceInfo.bIsPlayingThisGame = pres.bIsPlayingThisGame;
 
-		FriendsList.Add(BPF);
+			FriendsList.Add(BPF);
+		}
+
+		return;
 	}
+
+	UE_LOG(AdvancedFriendsLog, Warning, TEXT("GetFriendsList Failed to get any friends!"));
+	return;
 }

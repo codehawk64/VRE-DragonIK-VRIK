@@ -14,7 +14,12 @@
 #include "VRPathFollowingComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "XRMotionControllerBase.h"
+#include "NavFilters/NavigationQueryFilter.h"
 //#include "Runtime/Engine/Private/EnginePrivate.h"
+
+#if WITH_PUSH_MODEL
+#include "Net/Core/PushModel/PushModel.h"
+#endif
 
 DEFINE_LOG_CATEGORY(LogBaseVRCharacter);
 
@@ -54,7 +59,7 @@ AVRBaseCharacter::AVRBaseCharacter(const FObjectInitializer& ObjectInitializer)
 		cap->SetCollisionResponseToChannel(ECollisionChannel::ECC_WorldStatic, ECollisionResponse::ECR_Block);
 	}
 
-	NetSmoother = CreateDefaultSubobject<USceneComponent>(AVRBaseCharacter::SmoothingSceneParentComponentName);
+	NetSmoother = CreateOptionalDefaultSubobject<USceneComponent>(AVRBaseCharacter::SmoothingSceneParentComponentName);
 	if (NetSmoother)
 	{
 		NetSmoother->SetupAttachment(RootComponent);
@@ -69,17 +74,17 @@ AVRBaseCharacter::AVRBaseCharacter(const FObjectInitializer& ObjectInitializer)
 		}
 	}
 
-	VRProxyComponent = CreateDefaultSubobject<USceneComponent>(AVRBaseCharacter::VRProxyComponentName);
+	VRProxyComponent = CreateOptionalDefaultSubobject<USceneComponent>(AVRBaseCharacter::VRProxyComponentName);
 	if (NetSmoother && VRProxyComponent)
 	{
 		VRProxyComponent->SetupAttachment(NetSmoother);
 	}
 
-	VRReplicatedCamera = CreateDefaultSubobject<UReplicatedVRCameraComponent>(AVRBaseCharacter::ReplicatedCameraComponentName);
+	VRReplicatedCamera = CreateOptionalDefaultSubobject<UReplicatedVRCameraComponent>(AVRBaseCharacter::ReplicatedCameraComponentName);
 	if (VRReplicatedCamera)
 	{
 		//VRReplicatedCamera->bOffsetByHMD = false;
-		VRReplicatedCamera->SetupAttachment(VRProxyComponent);
+		VRReplicatedCamera->SetupAttachment(VRProxyComponent ? VRProxyComponent : NetSmoother ? NetSmoother : RootComponent);
 		VRReplicatedCamera->OverrideSendTransform = &AVRBaseCharacter::Server_SendTransformCamera;
 	}
 
@@ -90,11 +95,11 @@ AVRBaseCharacter::AVRBaseCharacter(const FObjectInitializer& ObjectInitializer)
 		//AddTickPrerequisiteComponent(this->GetCharacterMovement());
 	}
 
-	ParentRelativeAttachment = CreateDefaultSubobject<UParentRelativeAttachmentComponent>(AVRBaseCharacter::ParentRelativeAttachmentComponentName);
+	ParentRelativeAttachment = CreateOptionalDefaultSubobject<UParentRelativeAttachmentComponent>(AVRBaseCharacter::ParentRelativeAttachmentComponentName);
 	if (ParentRelativeAttachment && VRReplicatedCamera)
 	{
 		// Moved this to be root relative as the camera late updates were killing how it worked
-		ParentRelativeAttachment->SetupAttachment(VRProxyComponent);
+		ParentRelativeAttachment->SetupAttachment(VRProxyComponent ? VRProxyComponent : NetSmoother ? NetSmoother : RootComponent);
 		//ParentRelativeAttachment->bOffsetByHMD = false;
 		ParentRelativeAttachment->AddTickPrerequisiteComponent(VRReplicatedCamera);
 
@@ -104,10 +109,10 @@ AVRBaseCharacter::AVRBaseCharacter(const FObjectInitializer& ObjectInitializer)
 		}
 	}
 
-	LeftMotionController = CreateDefaultSubobject<UGripMotionControllerComponent>(AVRBaseCharacter::LeftMotionControllerComponentName);
+	LeftMotionController = CreateOptionalDefaultSubobject<UGripMotionControllerComponent>(AVRBaseCharacter::LeftMotionControllerComponentName);
 	if (IsValid(LeftMotionController))
 	{
-		LeftMotionController->SetupAttachment(VRProxyComponent);
+		LeftMotionController->SetupAttachment(VRProxyComponent ? VRProxyComponent : NetSmoother ? NetSmoother : RootComponent);
 		//LeftMotionController->MotionSource = FXRMotionControllerBase::LeftHandSourceId;
 		LeftMotionController->SetTrackingMotionSource(IMotionController::LeftHandSourceId);
 		//LeftMotionController->Hand = EControllerHand::Left;
@@ -118,10 +123,10 @@ AVRBaseCharacter::AVRBaseCharacter(const FObjectInitializer& ObjectInitializer)
 		LeftMotionController->OverrideSendTransform = &AVRBaseCharacter::Server_SendTransformLeftController;
 	}
 
-	RightMotionController = CreateDefaultSubobject<UGripMotionControllerComponent>(AVRBaseCharacter::RightMotionControllerComponentName);
+	RightMotionController = CreateOptionalDefaultSubobject<UGripMotionControllerComponent>(AVRBaseCharacter::RightMotionControllerComponentName);
 	if (IsValid(RightMotionController))
 	{
-		RightMotionController->SetupAttachment(VRProxyComponent);
+		RightMotionController->SetupAttachment(VRProxyComponent ? VRProxyComponent : NetSmoother ? NetSmoother : RootComponent);
 		//RightMotionController->MotionSource = FXRMotionControllerBase::RightHandSourceId;
 		RightMotionController->SetTrackingMotionSource(IMotionController::RightHandSourceId);
 		//RightMotionController->Hand = EControllerHand::Right;
@@ -235,13 +240,24 @@ void AVRBaseCharacter::PostInitializeComponents()
 void AVRBaseCharacter::GetLifetimeReplicatedProps(TArray< class FLifetimeProperty > & OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	DOREPLIFETIME_CONDITION(AVRBaseCharacter, SeatInformation, COND_None);
-	DOREPLIFETIME_CONDITION(AVRBaseCharacter, VRReplicateCapsuleHeight, COND_None);
-	DOREPLIFETIME_CONDITION(AVRBaseCharacter, ReplicatedCapsuleHeight, COND_SimulatedOnly);
+
+	// For std properties
+	FDoRepLifetimeParams PushModelParams{ COND_None, REPNOTIFY_OnChanged, /*bIsPushBased=*/true };
+
+	DOREPLIFETIME_WITH_PARAMS_FAST(AVRBaseCharacter, SeatInformation, PushModelParams);
+	DOREPLIFETIME_WITH_PARAMS_FAST(AVRBaseCharacter, VRReplicateCapsuleHeight, PushModelParams);
+
+	// For properties with special conditions
+	FDoRepLifetimeParams PushModelParamsWithCondition{ COND_SimulatedOnly, REPNOTIFY_OnChanged, /*bIsPushBased=*/true };
+
+	DOREPLIFETIME_WITH_PARAMS_FAST(AVRBaseCharacter, ReplicatedCapsuleHeight, PushModelParamsWithCondition);
 	
 	DISABLE_REPLICATED_PRIVATE_PROPERTY(AActor, ReplicatedMovement);
 
-	DOREPLIFETIME_CONDITION_NOTIFY(AVRBaseCharacter, ReplicatedMovementVR, COND_SimulatedOrPhysics, REPNOTIFY_Always);
+	// For properties with special conditions
+	FDoRepLifetimeParams PushModelParamsReplicatedMovement{ COND_SimulatedOrPhysics, REPNOTIFY_Always, /*bIsPushBased=*/true };
+
+	DOREPLIFETIME_WITH_PARAMS_FAST(AVRBaseCharacter, ReplicatedMovementVR, PushModelParamsReplicatedMovement);
 }
 
 void AVRBaseCharacter::PreReplication(IRepChangedPropertyTracker & ChangedPropertyTracker)
@@ -282,6 +298,10 @@ void AVRBaseCharacter::Server_ReZeroSeating_Implementation(FTransform_NetQuantiz
 		FVector newLocation = SeatInformation.InitialRelCameraTransform.GetTranslation();
 		SeatInformation.StoredTargetTransform.AddToTranslation(FVector(0, 0, -newLocation.Z));
 	}
+
+#if WITH_PUSH_MODEL
+	MARK_PROPERTY_DIRTY_FROM_NAME(AVRBaseCharacter, SeatInformation, this);
+#endif
 
 	OnRep_SeatedCharInfo();
 }
@@ -456,6 +476,10 @@ void AVRBaseCharacter::GatherCurrentMovement()
 	ReplicatedMovementVR.bPausedTracking = bTrackingPaused;
 	ReplicatedMovementVR.PausedTrackingLoc = PausedTrackingLoc;
 	ReplicatedMovementVR.PausedTrackingRot = PausedTrackingRot;
+
+#if WITH_PUSH_MODEL
+	MARK_PROPERTY_DIRTY_FROM_NAME(AVRBaseCharacter, ReplicatedMovementVR, this);
+#endif
 
 }
 
@@ -680,6 +704,9 @@ void AVRBaseCharacter::InitSeatedModeTransition()
 
 void AVRBaseCharacter::TickSeatInformation(float DeltaTime)
 {
+	if (!VRReplicatedCamera)
+		return;
+	
 	float LastThresholdScaler = SeatInformation.CurrentThresholdScaler;
 	bool bLastOverThreshold = SeatInformation.bIsOverThreshold;
 
@@ -779,9 +806,9 @@ bool AVRBaseCharacter::SetSeatedMode(USceneComponent * SeatParent, bool bSetSeat
 
 		// Automate the intial relative camera transform for this mode
 		// I think we can remove the initial value alltogether eventually right?
-		if (!bRetainRoomscale)
+		if (!bRetainRoomscale && VRReplicatedCamera)
 		{
-			InitialRelCameraTransform = FTransform(VRReplicatedCamera->ReplicatedCameraTransform.Rotation, VRReplicatedCamera->ReplicatedCameraTransform.Position, VRReplicatedCamera->GetComponentScale());
+			InitialRelCameraTransform = VRReplicatedCamera->GetHMDTrackingTransform();
 		}
 
 		SeatInformation.SeatParent = SeatParent;
@@ -802,6 +829,10 @@ bool AVRBaseCharacter::SetSeatedMode(USceneComponent * SeatParent, bool bSetSeat
 			SeatInformation.StoredTargetTransform.AddToTranslation(FVector(0, 0, -newLocation.Z));
 		}
 
+#if WITH_PUSH_MODEL
+		MARK_PROPERTY_DIRTY_FROM_NAME(AVRBaseCharacter, SeatInformation, this);
+#endif
+
 		//SetReplicateMovement(false);/ / No longer doing this, allowing it to replicate down to simulated clients now instead
 	}
 	else
@@ -812,6 +843,9 @@ bool AVRBaseCharacter::SetSeatedMode(USceneComponent * SeatParent, bool bSetSeat
 		//SetReplicateMovement(true); // No longer doing this, allowing it to replicate down to simulated clients now instead
 		SeatInformation.bSitting = false;
 	}
+#if WITH_PUSH_MODEL
+	MARK_PROPERTY_DIRTY_FROM_NAME(AVRBaseCharacter, SeatInformation, this);
+#endif
 
 	OnRep_SeatedCharInfo(); // Call this on server side because it won't call itself
 	NotifyOfTeleport(); // Teleport the controllers
@@ -909,7 +943,7 @@ FVector AVRBaseCharacter::SetActorRotationVR(FRotator NewRot, bool bUseYawOnly, 
 		NewRot.Roll = 0.0f;
 	}
 
-	if (bAccountForHMDRotation)
+	if (bAccountForHMDRotation && VRReplicatedCamera)
 	{
 		NewRotation = UVRExpansionFunctionLibrary::GetHMDPureYaw_I(VRReplicatedCamera->GetRelativeRotation());
 		NewRotation = (NewRot.Quaternion() * NewRotation.Quaternion().Inverse()).Rotator();
@@ -944,7 +978,7 @@ FVector AVRBaseCharacter::SetActorLocationAndRotationVR(FVector NewLoc, FRotator
 		NewRot.Roll = 0.0f;
 	}
 
-	if (bAccountForHMDRotation)
+	if (bAccountForHMDRotation && VRReplicatedCamera)
 	{
 		NewRotation = UVRExpansionFunctionLibrary::GetHMDPureYaw_I(VRReplicatedCamera->GetRelativeRotation());//bUseControllerRotationYaw && OwningController ? OwningController->GetControlRotation() : GetActorRotation();
 		NewRotation = (NewRot.Quaternion() * NewRotation.Quaternion().Inverse()).Rotator();
@@ -1201,4 +1235,12 @@ void AVRBaseCharacter::StopNavigationMovement()
 		// not ignore OnRequestFinished notify that's going to be sent out due to this call
 		pathComp->AbortMove(*this, FPathFollowingResultFlags::MovementStop | FPathFollowingResultFlags::ForcedScript);
 	}
+}
+
+void AVRBaseCharacter::SetVRReplicateCapsuleHeight(bool bNewVRReplicateCapsuleHeight)
+{
+	VRReplicateCapsuleHeight = bNewVRReplicateCapsuleHeight;
+#if WITH_PUSH_MODEL
+	MARK_PROPERTY_DIRTY_FROM_NAME(AVRBaseCharacter, VRReplicateCapsuleHeight, this);
+#endif
 }

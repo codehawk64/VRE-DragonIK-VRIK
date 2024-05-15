@@ -3,12 +3,17 @@
 #include "Misc/VRRenderTargetManager.h"
 #include UE_INLINE_GENERATED_CPP_BY_NAME(VRRenderTargetManager)
 
+#include "Engine/World.h"
+#include "GlobalRenderResources.h"
+#include "Components/ActorComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "GameFramework\Pawn.h"
 #include "GameFramework/PlayerState.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/Texture2D.h"
 #include "TextureResource.h"
+#include "PixelFormat.h"
 #include "CanvasTypes.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/KismetRenderingLibrary.h"
@@ -279,7 +284,7 @@ void UVRRenderTargetManager::DrawOperations()
 
 	UWorld* World = GetWorld();
 
-	if (!World || !World->bBegunPlay)
+	if (!World || !World->GetBegunPlay())
 		return;
 
 	// Reference to the Render Target resource
@@ -485,14 +490,24 @@ void ARenderTargetReplicationProxy::SendNextDataBlob()
 	}
 }
 
+void ARenderTargetReplicationProxy::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (SendTimer_Handle.IsValid())
+		GetWorld()->GetTimerManager().ClearTimer(SendTimer_Handle);
+
+	Super::EndPlay(EndPlayReason);
+}
+
 //=============================================================================
 void ARenderTargetReplicationProxy::GetLifetimeReplicatedProps(TArray< class FLifetimeProperty >& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
+	// For properties with special conditions
+	FDoRepLifetimeParams PushModelParamsWithCondition{ COND_InitialOnly, REPNOTIFY_OnChanged, /*bIsPushBased=*/true };
 
-	DOREPLIFETIME(ARenderTargetReplicationProxy, OwningManager);
-	DOREPLIFETIME(ARenderTargetReplicationProxy, OwnersID);
+	DOREPLIFETIME_WITH_PARAMS_FAST(ARenderTargetReplicationProxy, OwningManager, PushModelParamsWithCondition);
+	DOREPLIFETIME_WITH_PARAMS_FAST(ARenderTargetReplicationProxy, OwnersID, PushModelParamsWithCondition);
 }
 
 void ARenderTargetReplicationProxy::ReceiveTextureBlob_Implementation(const TArray<uint8>& TextureBlob, int32 LocationInData, int32 BlobNumber)
@@ -1469,6 +1484,7 @@ void RLE_Funcs::RLEWriteRunFlag(uint32 count, uint8** loc, TArray<DataType>& Dat
 	Data.Empty(256);
 }
 
+
 template <typename DataType>
 bool RLE_Funcs::RLEEncodeBuffer(DataType* BufferToEncode, uint32 EncodeLength, TArray<uint8>* EncodedLine)
 {
@@ -1636,15 +1652,17 @@ bool RLE_Funcs::RLEEncodeBuffer(DataType* BufferToEncode, uint32 EncodeLength, T
 
 	return true;
 	// Skipping non compressed for now, the overhead is so low that it isn't worth supporting since the last revision
+	/*
 	if (Wrote > OrigNum * incr)
 	{
 		EncodedLine->Empty(OrigNum * incr);
 		EncodedLine->AddUninitialized(OrigNum * incr);
-		FMemory::Memcpy(EncodedLine->GetData(), BufferToEncode/*LineToEncode->GetData()*/, OrigNum * incr);
+		FMemory::Memcpy(EncodedLine->GetData(), BufferToEncode, OrigNum * incr);
 		return false; // Return that there was no compression, so the decoder can receive it later
 	}
 	else
 		return true;
+		*/
 }
 
 template<int32 ScaleFactor, int32 MaxBitsPerComponent>

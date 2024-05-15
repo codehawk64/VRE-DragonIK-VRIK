@@ -3,11 +3,16 @@
 #include "Grippables/HandSocketComponent.h"
 #include UE_INLINE_GENERATED_CPP_BY_NAME(HandSocketComponent)
 
+#include "CoreMinimal.h"
+#include "UObject/UObjectIterator.h"
 #include "Engine/CollisionProfile.h"
+#include "BoneContainer.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimInstanceProxy.h"
 #include "Animation/PoseSnapshot.h"
 #include "Animation/AnimData/AnimDataModel.h"
+#include "Engine/SkinnedAssetCommon.h"
+#include "Engine/SkinnedAsset.h"
 //#include "VRExpansionFunctionLibrary.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/PoseableMeshComponent.h"
@@ -16,6 +21,10 @@
 //#include "VRBPDatatypes.h"
 #include "Net/UnrealNetwork.h"
 #include "Serialization/CustomVersion.h"
+
+#if WITH_PUSH_MODEL
+#include "Net/Core/PushModel/PushModel.h"
+#endif
 
 DEFINE_LOG_CATEGORY(LogVRHandSocketComponent);
 
@@ -67,6 +76,7 @@ UHandSocketComponent::UHandSocketComponent(const FObjectInitializer& ObjectIniti
 	HandRelativePlacement = FTransform::Identity;
 	bAlwaysInRange = false;
 	bDisabled = false;
+	bLockInPlace = false;
 	bMatchRotation = false;
 	OverrideDistance = 0.0f;
 	SlotPrefix = FName("VRGripP");
@@ -87,6 +97,69 @@ UHandSocketComponent::UHandSocketComponent(const FObjectInitializer& ObjectIniti
 UAnimSequence* UHandSocketComponent::GetTargetAnimation()
 {
 	return HandTargetAnimation;
+}
+
+void UHandSocketComponent::GetAllHandSocketComponents(TArray<UHandSocketComponent*>& OutHandSockets)
+{
+	for (TObjectIterator<UHandSocketComponent> It; It; ++It)
+	{
+		UHandSocketComponent* HandSocket = *It;
+		if (IsValid(HandSocket) && !HandSocket->IsTemplate())
+		{
+			OutHandSockets.Add(HandSocket);
+		}
+	}
+}
+
+bool UHandSocketComponent::GetAllHandSocketComponentsInRange(FVector SearchFromWorldLocation, float SearchRange, TArray<UHandSocketComponent*>& OutHandSockets)
+{
+	float SearchDistSq = FMath::Square(SearchRange);
+
+	UHandSocketComponent* HandSocket = nullptr;
+	FTransform HandSocketTrans;
+	for (TObjectIterator<UHandSocketComponent> It; It; ++It)
+	{
+		HandSocket = *It;
+		if (IsValid(HandSocket) && !HandSocket->IsTemplate())
+		{
+			HandSocketTrans = HandSocket->GetRelativeTransform() * HandSocket->GetOwner()->GetActorTransform();
+			if (FVector::DistSquared(HandSocketTrans.GetLocation(), SearchFromWorldLocation) <= SearchDistSq)
+			{
+				OutHandSockets.Add(HandSocket);
+			}
+		}
+	}
+
+	return OutHandSockets.Num() > 0;
+}
+
+UHandSocketComponent* UHandSocketComponent::GetClosestHandSocketComponentInRange(FVector SearchFromWorldLocation, float SearchRange)
+{
+	float SearchDistSq = FMath::Square(SearchRange);
+	UHandSocketComponent* ClosestHandSocket = nullptr;
+	float LastDist = 0.0f;
+	float DistSq = 0.0f;
+
+	bool bFoundOne = false;
+	UHandSocketComponent* HandSocket = nullptr;
+	FTransform HandSocketTrans;
+	for (TObjectIterator<UHandSocketComponent> It; It; ++It)
+	{
+		HandSocket = *It;
+		if (IsValid(HandSocket) && !HandSocket->IsTemplate())
+		{
+			HandSocketTrans = HandSocket->GetRelativeTransform() * HandSocket->GetOwner()->GetActorTransform();
+			DistSq = FVector::DistSquared(HandSocketTrans.GetLocation(), SearchFromWorldLocation);
+			if (DistSq <= SearchDistSq && (!bFoundOne || DistSq < LastDist))
+			{
+				bFoundOne = true;
+				ClosestHandSocket = HandSocket;
+				LastDist = DistSq;
+			}
+		}
+	}
+
+	return ClosestHandSocket;
 }
 
 bool UHandSocketComponent::GetAnimationSequenceAsPoseSnapShot(UAnimSequence* InAnimationSequence, FPoseSnapshot& OutPoseSnapShot, USkeletalMeshComponent* TargetMesh, bool bSkipRootBone, bool bFlipHand)
@@ -443,12 +516,37 @@ FTransform UHandSocketComponent::GetHandSocketTransform(UGripMotionControllerCom
 
 					ReturnTrans = ReturnTrans * AttParent->GetComponentTransform();
 				}
+
 				return ReturnTrans;
 			}
 		}
 	}
 
-	return this->GetComponentTransform();
+
+	if (bLockInPlace)
+	{
+		FTransform ReturnTrans = this->GetRelativeTransform();
+
+		if (USceneComponent* AttParent = this->GetAttachParent())
+		{	
+			if (this->GetAttachSocketName() != NAME_None)
+			{
+				ReturnTrans = ReturnTrans * AttParent->GetSocketTransform(GetAttachSocketName(), RTS_Component);
+			}
+
+			ReturnTrans = ReturnTrans * AttParent->GetComponentTransform();
+		}
+		else
+		{
+			ReturnTrans = this->GetComponentTransform(); // Fallback
+		}
+
+		return ReturnTrans;
+	}
+	else
+	{
+		return this->GetComponentTransform();
+	}
 }
 
 FTransform UHandSocketComponent::GetMeshRelativeTransform(bool bIsRightHand, bool bUseParentScale, bool bUseMirrorScale)
@@ -552,11 +650,19 @@ FTransform UHandSocketComponent::GetBoneTransformAtTime(UAnimSequence* MyAnimSeq
 void UHandSocketComponent::OnRegister()
 {
 
+
+	UWorld* MyWorld = GetWorld();
+
+	if (!MyWorld)
+		return;
+
+	TEnumAsByte<EWorldType::Type> MyWorldType = MyWorld->WorldType;
+
 #if WITH_EDITORONLY_DATA
 	AActor* MyOwner = GetOwner();
 	if (bShowVisualizationMesh && (MyOwner != nullptr) && !IsRunningCommandlet())
 	{
-		if (HandVisualizerComponent == nullptr && bShowVisualizationMesh)
+		if (HandVisualizerComponent == nullptr && bShowVisualizationMesh && (MyWorldType == EWorldType::EditorPreview || MyWorldType == EWorldType::Editor))
 		{
 			HandVisualizerComponent = NewObject<UPoseableMeshComponent>(MyOwner, NAME_None, RF_Transactional | RF_TextExportTransient);
 			HandVisualizerComponent->SetupAttachment(this);
@@ -570,9 +676,11 @@ void UHandSocketComponent::OnRegister()
 			HandVisualizerComponent->RegisterComponentWithWorld(GetWorld());
 			//HandVisualizerComponent->SetUsingAbsoluteScale(true);
 		}
-		else if (!bShowVisualizationMesh && HandVisualizerComponent)
+		else if (/*!bShowVisualizationMesh && */HandVisualizerComponent)
 		{
-			HideVisualizationMesh();
+			HandVisualizerComponent->SetVisibility(false);
+			HandVisualizerComponent->DestroyComponent();
+			HandVisualizerComponent = nullptr;
 		}
 
 		if (HandVisualizerComponent)
@@ -594,6 +702,16 @@ void UHandSocketComponent::OnRegister()
 	}
 
 #endif	// WITH_EDITORONLY_DATA
+
+	if (bLockInPlace && (MyWorldType != EWorldType::EditorPreview && MyWorldType != EWorldType::Editor))
+	{
+		// Store current starting relative transform
+		//LockedRelativeTransform = GetRelativeTransform();
+
+		// Kill off child updates
+		SetUsingAbsoluteLocation(true);
+		SetUsingAbsoluteRotation(true);
+	}
 
 	Super::OnRegister();
 }
@@ -767,10 +885,17 @@ void UHandSocketComponent::OnComponentDestroyed(bool bDestroyingHierarchy)
 void UHandSocketComponent::GetLifetimeReplicatedProps(TArray< class FLifetimeProperty > & OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	
-	DOREPLIFETIME(UHandSocketComponent, bRepGameplayTags);
-	DOREPLIFETIME(UHandSocketComponent, bReplicateMovement);
-	DOREPLIFETIME_CONDITION(UHandSocketComponent, GameplayTags, COND_Custom);
+
+	// For std properties
+	FDoRepLifetimeParams PushModelParams{ COND_None, REPNOTIFY_OnChanged, /*bIsPushBased=*/true };
+
+	DOREPLIFETIME_WITH_PARAMS_FAST(UHandSocketComponent, bRepGameplayTags, PushModelParams);
+	DOREPLIFETIME_WITH_PARAMS_FAST(UHandSocketComponent, bReplicateMovement, PushModelParams);
+
+	// For properties with special conditions
+	FDoRepLifetimeParams PushModelParamsWithCondition{ COND_Custom, REPNOTIFY_OnChanged, /*bIsPushBased=*/true };
+
+	DOREPLIFETIME_WITH_PARAMS_FAST(UHandSocketComponent, GameplayTags, PushModelParamsWithCondition);
 }
 
 void UHandSocketComponent::PreReplication(IRepChangedPropertyTracker & ChangedPropertyTracker)
@@ -854,4 +979,47 @@ UHandSocketComponent* UHandSocketComponent::GetHandSocketComponentFromObject(UOb
 	}
 
 	return nullptr;
+}
+
+/////////////////////////////////////////////////
+//- Push networking getter / setter functions
+/////////////////////////////////////////////////
+
+void UHandSocketComponent::SetRepGameplayTags(bool bNewRepGameplayTags)
+{
+	bRepGameplayTags = bNewRepGameplayTags;
+#if WITH_PUSH_MODEL
+	MARK_PROPERTY_DIRTY_FROM_NAME(UHandSocketComponent, bRepGameplayTags, this);
+#endif
+}
+
+void UHandSocketComponent::SetReplicateMovement(bool bNewReplicateMovement)
+{
+	bReplicateMovement = bNewReplicateMovement;
+#if WITH_PUSH_MODEL
+	MARK_PROPERTY_DIRTY_FROM_NAME(UHandSocketComponent, bReplicateMovement, this);
+#endif
+}
+
+FGameplayTagContainer& UHandSocketComponent::GetGameplayTags()
+{
+#if WITH_PUSH_MODEL
+	if (bRepGameplayTags)
+	{
+		MARK_PROPERTY_DIRTY_FROM_NAME(UHandSocketComponent, GameplayTags, this);
+	}
+#endif
+
+	return GameplayTags;
+}
+
+/////////////////////////////////////////////////
+//- End Push networking getter / setter functions
+/////////////////////////////////////////////////
+
+void UHandSocketAnimInstance::NativeInitializeAnimation()
+{
+	Super::NativeInitializeAnimation();
+
+	OwningSocket = Cast<UHandSocketComponent>(GetOwningComponent()->GetAttachParent());
 }

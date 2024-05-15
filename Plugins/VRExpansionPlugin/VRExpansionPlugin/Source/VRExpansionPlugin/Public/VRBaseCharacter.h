@@ -13,6 +13,7 @@ class AVRPlayerController;
 class UGripMotionControllerComponent;
 class UParentRelativeAttachmentComponent;
 class AController;
+class UNavigationQueryFilter;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogBaseVRCharacter, Log, All);
 
@@ -280,7 +281,7 @@ public:
 	// If true then we will retain roomscale tracking in relative space of the character.
 	// If false than the movement component will offset to the hmd tracking and the tracking will be nulled out
 	UPROPERTY(Category = VRBaseCharacter, EditAnywhere, BlueprintReadOnly)
-		bool bRetainRoomscale = true;
+		bool bRetainRoomscale = false;
 
 	//virtual void CacheInitialMeshOffset(FVector MeshRelativeLocation, FRotator MeshRelativeRotation) override;
 	virtual void PostInitializeComponents() override;
@@ -330,9 +331,14 @@ public:
 
 	virtual void PreReplication(IRepChangedPropertyTracker & ChangedPropertyTracker) override;
 
+protected:
 	// If true will replicate the capsule height on to clients, allows for dynamic capsule height changes in multiplayer
 	UPROPERTY(EditAnywhere, Replicated, BlueprintReadWrite, Category = "VRBaseCharacter")
 		bool VRReplicateCapsuleHeight;
+public:
+	bool GetVRReplicateCapsuleHeight() { return VRReplicateCapsuleHeight; }
+	void SetVRReplicateCapsuleHeight(bool bNewVRReplicateCapsuleHeight);
+
 
 	// OnlyReplicated to simulated clients
 	UPROPERTY(Replicated, ReplicatedUsing = OnRep_CapsuleHeight)

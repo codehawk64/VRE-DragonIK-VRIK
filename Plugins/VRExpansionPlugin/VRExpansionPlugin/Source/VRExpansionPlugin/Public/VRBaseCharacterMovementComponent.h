@@ -79,11 +79,17 @@ public:
 		float FloorOrientationChangeBlendRate = 25.0f;
 
 	// Sets the value of bAutoOrientToFloorNormal in a manner that cleans up when removed
-	UFUNCTION(BlueprintCallable, Category = "BaseVRCharacterMovementComponent|VRLocations")
+	UFUNCTION(BlueprintCallable, Category = "BaseVRCharacterMovementComponent|Wall Walking")
 		void SetAutoOrientToFloorNormal(bool bAutoOrient, bool bRevertGravityWhenDisabled = true);
 
-	void AutoTraceAndSetCharacterToNewGravity(FHitResult & TargetFloor, float DeltaTime);
-	bool SetCharacterToNewGravity(FVector NewGravityDirection, bool bOrientToNewGravity = true);
+	// Store if our current movement was blending rotation
+	bool bIsBlendingOrientation = false;
+
+	void AutoTraceAndSetCharacterToNewGravity(FHitResult & TargetFloor, float DeltaTime = 1.0f);
+
+	// Directly set new gravity (does not replicate, move action is preferrable) 
+	UFUNCTION(BlueprintCallable, Category = "BaseVRCharacterMovementComponent|Wall Walking")
+	bool SetCharacterToNewGravity(FVector NewGravityDirection, bool bOrientToNewGravity = true, float Deltatime = 1.0f);
 
 	// Adding seated transition
 	void OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode) override;

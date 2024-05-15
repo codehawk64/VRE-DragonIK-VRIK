@@ -6,6 +6,7 @@
 //#include "Engine/Engine.h"
 #include "VRBPDatatypes.h"
 #include "Engine/DataAsset.h"
+#include "Components\SceneComponent.h"
 
 //#include "Engine/EngineTypes.h"
 //#include "Engine/EngineBaseTypes.h"
@@ -35,6 +36,15 @@ enum class EVRGestureMirrorMode : uint8
 	GES_MirrorLeft,
 	GES_MirrorRight,
 	GES_MirrorBoth
+};
+
+UENUM(Blueprintable)
+enum class EVRGestureFlattenAxis : uint8
+{
+	GES_FlattenX,
+	GES_FlattenY,
+	GES_FlattenZ,
+	GES_DontFlatten
 };
 
 USTRUCT(BlueprintType, Category = "VRGestures")
@@ -94,7 +104,7 @@ public:
 	uint8 GestureType;
 
 	// Samples in the recorded gesture
-	UPROPERTY(BlueprintReadWrite, VisibleAnywhere, Category = "VRGesture")
+	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category = "VRGesture")
 	TArray<FVector> Samples;
 
 	UPROPERTY(BlueprintReadWrite, VisibleAnywhere, Category = "VRGesture")
@@ -279,11 +289,11 @@ public:
 	// Number of samples to keep in memory during detection
 	int RecordingBufferSize;
 
-	float RecordingClampingTolerance;
-	bool bRecordingFlattenGesture;
-	bool bDrawRecordingGesture;
-	bool bDrawRecordingGestureAsSpline;
-	bool bGestureChanged;
+	float RecordingClampingTolerance = 0.0f;
+	EVRGestureFlattenAxis RecordingFlattenAxis = EVRGestureFlattenAxis::GES_DontFlatten;
+	bool bDrawRecordingGesture = false;
+	bool bDrawRecordingGestureAsSpline = false;
+	bool bGestureChanged = false;
 
 	// Handle to our update timer
 	FTimerHandle TickGestureTimer_Handle;
@@ -309,7 +319,7 @@ public:
 		return FVector::DistSquared(Seq1, Seq2);
 	}
 
-	void BeginDestroy() override;
+	virtual void BeginDestroy() override;
 
 	// Recalculates a gestures size and re-scales it to the given database
 	UFUNCTION(BlueprintCallable, Category = "VRGestures")
@@ -335,7 +345,7 @@ public:
 	* ClampingTolerance: If larger than 0.0, we will clamp points to a grid of this size
 	*/
 	UFUNCTION(BlueprintCallable, Category = "VRGestures")
-		void BeginRecording(bool bRunDetection, bool bFlattenGesture = true, bool bDrawGesture = true, bool bDrawAsSpline = false, int SamplingHTZ = 30, int SampleBufferSize = 60, float ClampingTolerance = 0.01f);
+		void BeginRecording(bool bRunDetection, EVRGestureFlattenAxis FlattenAxis = EVRGestureFlattenAxis::GES_FlattenX, bool bDrawGesture = true, bool bDrawAsSpline = false, int SamplingHTZ = 30, int SampleBufferSize = 60, float ClampingTolerance = 0.01f);
 
 	// Ends recording and returns the recorded gesture
 	UFUNCTION(BlueprintCallable, Category = "VRGestures")

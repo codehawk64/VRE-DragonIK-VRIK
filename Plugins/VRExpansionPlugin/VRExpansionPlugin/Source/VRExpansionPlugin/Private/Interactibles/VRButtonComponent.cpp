@@ -7,6 +7,11 @@
 //#include "VRGripInterface.h"
 #include "GripMotionControllerComponent.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/PlayerController.h"
+
+#if WITH_PUSH_MODEL
+#include "Net/Core/PushModel/PushModel.h"
+#endif
 
   //=============================================================================
 UVRButtonComponent::UVRButtonComponent(const FObjectInitializer& ObjectInitializer)
@@ -47,10 +52,17 @@ void UVRButtonComponent::GetLifetimeReplicatedProps(TArray< class FLifetimePrope
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	DOREPLIFETIME(UVRButtonComponent, InitialRelativeTransform);
-	DOREPLIFETIME(UVRButtonComponent, bReplicateMovement);
-	DOREPLIFETIME(UVRButtonComponent, StateChangeAuthorityType);
-	DOREPLIFETIME_CONDITION(UVRButtonComponent, bButtonState, COND_InitialOnly);
+	// For std properties
+	FDoRepLifetimeParams PushModelParams{ COND_None, REPNOTIFY_OnChanged, /*bIsPushBased=*/true };
+
+	DOREPLIFETIME_WITH_PARAMS_FAST(UVRButtonComponent, InitialRelativeTransform, PushModelParams);
+	DOREPLIFETIME_WITH_PARAMS_FAST(UVRButtonComponent, bReplicateMovement, PushModelParams);
+	DOREPLIFETIME_WITH_PARAMS_FAST(UVRButtonComponent, StateChangeAuthorityType, PushModelParams);
+
+	// For properties with special conditions
+	FDoRepLifetimeParams PushModelParamsWithCondition{ COND_InitialOnly, REPNOTIFY_OnChanged, /*bIsPushBased=*/true };
+
+	DOREPLIFETIME_WITH_PARAMS_FAST(UVRButtonComponent, bButtonState, PushModelParamsWithCondition);
 }
 
 void UVRButtonComponent::PreReplication(IRepChangedPropertyTracker & ChangedPropertyTracker)
@@ -182,8 +194,16 @@ bool UVRButtonComponent::IsValidOverlap_Implementation(UPrimitiveComponent * Ove
 
 	// Should return faster checking for owning character
 	AActor * OverlapOwner = OverlapComponent->GetOwner();
-	if (OverlapOwner && OverlapOwner->IsA(ACharacter::StaticClass()))
-		return true;
+
+	if (IsValid(OverlapOwner))
+	{
+		if (OverlapOwner->IsA(ACharacter::StaticClass()))
+			return true;
+
+		const AActor* OverlapNetOwner = OverlapOwner->GetNetOwner();
+		if (IsValid(OverlapNetOwner) && (OverlapNetOwner->IsA(APlayerController::StaticClass()) || OverlapNetOwner->IsA(ACharacter::StaticClass())))
+			return true;
+	}
 
 	// Because epic motion controllers are not owned by characters have to check here too in case someone implements it like that
 	// Now since our grip controllers are a subclass to the std ones we only need to check for the base one instead of both.
@@ -413,4 +433,28 @@ FVector UVRButtonComponent::SetAxisValue(float SetValue)
 	}
 
 	return vec;
+}
+
+void UVRButtonComponent::SetReplicateMovement(bool bNewReplicateMovement)
+{
+	bReplicateMovement = bNewReplicateMovement;
+#if WITH_PUSH_MODEL
+		MARK_PROPERTY_DIRTY_FROM_NAME(UVRButtonComponent, bReplicateMovement, this);
+#endif
+}
+
+void UVRButtonComponent::SetStateChangeAuthorityType(EVRStateChangeAuthorityType NewStateChangeAuthorityType)
+{
+	StateChangeAuthorityType = NewStateChangeAuthorityType;
+#if WITH_PUSH_MODEL
+	MARK_PROPERTY_DIRTY_FROM_NAME(UVRButtonComponent, StateChangeAuthorityType, this);
+#endif
+}
+
+void UVRButtonComponent::SetButtonState(bool bNewButtonState)
+{
+	bButtonState = bNewButtonState;
+#if WITH_PUSH_MODEL
+	MARK_PROPERTY_DIRTY_FROM_NAME(UVRButtonComponent, bButtonState, this);
+#endif
 }

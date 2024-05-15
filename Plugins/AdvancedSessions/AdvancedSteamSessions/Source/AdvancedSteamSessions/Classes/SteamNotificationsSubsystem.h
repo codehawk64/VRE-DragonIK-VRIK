@@ -5,10 +5,7 @@
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 
-#if PLATFORM_WINDOWS || PLATFORM_MAC || PLATFORM_LINUX
-
-//#include "OnlineSubsystemSteam.h"
-//#include "OnlineSubsystemSteamPrivate.h"
+#if (PLATFORM_WINDOWS || PLATFORM_MAC || PLATFORM_LINUX) && STEAM_SDK_INSTALLED
 
 #include <steam/steam_api.h>
 
@@ -43,7 +40,7 @@ public:
 			ParentSubsystem = MyParent;
 		}
 
-#if PLATFORM_WINDOWS || PLATFORM_MAC || PLATFORM_LINUX
+#if (PLATFORM_WINDOWS || PLATFORM_MAC || PLATFORM_LINUX) && STEAM_SDK_INSTALLED
 		cSteamEventsStore() :
 		OnExternalUITriggeredCallback(this, &cSteamEventsStore::OnExternalUITriggered)
 		{
@@ -59,7 +56,7 @@ public:
 		//~cSteamEventsStore(){}
 
 	private:
-#if PLATFORM_WINDOWS || PLATFORM_MAC || PLATFORM_LINUX
+#if (PLATFORM_WINDOWS || PLATFORM_MAC || PLATFORM_LINUX) && STEAM_SDK_INSTALLED
 		STEAM_CALLBACK(cSteamEventsStore, OnExternalUITriggered, GameOverlayActivated_t, OnExternalUITriggeredCallback);
 #endif
 	};
@@ -79,7 +76,7 @@ public:
 	}
 };
 
-#if PLATFORM_WINDOWS || PLATFORM_MAC || PLATFORM_LINUX
+#if (PLATFORM_WINDOWS || PLATFORM_MAC || PLATFORM_LINUX) && STEAM_SDK_INSTALLED
 void USteamNotificationsSubsystem::cSteamEventsStore::OnExternalUITriggered(GameOverlayActivated_t* CallbackData)
 {
 	if (ParentSubsystem)
