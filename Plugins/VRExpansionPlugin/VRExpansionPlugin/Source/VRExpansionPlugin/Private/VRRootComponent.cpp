@@ -468,7 +468,7 @@ void UVRRootComponent::UpdateCharacterCapsuleOffset()
 {
 	if (owningVRChar && !owningVRChar->bRetainRoomscale && owningVRChar->NetSmoother)
 	{
-		if (!FMath::IsNearlyEqual(LastCapsuleHalfHeight, CapsuleHalfHeight))
+		if (bCenterCapsuleOnHMD || !FMath::IsNearlyEqual(LastCapsuleHalfHeight, CapsuleHalfHeight))
 		{
 			owningVRChar->NetSmoother->SetRelativeLocation(GetTargetHeightOffset(), false, nullptr, ETeleportType::TeleportPhysics);
 
@@ -506,6 +506,8 @@ void UVRRootComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, 
 
 	if (IsLocallyControlled())
 	{
+		bool bHadBadTracking = false;
+
 		if (owningVRChar && owningVRChar->bTrackingPaused)
 		{
 			curCameraLoc = owningVRChar->PausedTrackingLoc;
@@ -524,6 +526,7 @@ void UVRRootComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, 
 			{
 				curCameraLoc = lastCameraLoc;
 				curCameraRot = lastCameraRot;
+				bHadBadTracking = true;
 			}
 			else
 			{
@@ -562,7 +565,7 @@ void UVRRootComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, 
 		
 
 		// Can adjust the relative tolerances to remove jitter and some update processing
-		if (!bRetainRoomscale || (!curCameraLoc.Equals(lastCameraLoc, 0.01f) || !curCameraRot.Equals(lastCameraRot, 0.01f)))
+		if (!bHadBadTracking && (!bRetainRoomscale || (!curCameraLoc.Equals(lastCameraLoc, 0.01f) || !curCameraRot.Equals(lastCameraRot, 0.01f))))
 		{
 			// Also calculate vector of movement for the movement component
 			FVector LastPosition = OffsetComponentToWorld.GetLocation();
@@ -591,9 +594,23 @@ void UVRRootComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, 
 			Params.bFindInitialOverlaps = true;
 			bool bBlockingHit = false;
 
-			if (bUseWalkingCollisionOverride && bRetainRoomscale)
+			if (bUseWalkingCollisionOverride /* && bRetainRoomscale*/)
 			{
-				FVector TargetWorldLocation = OffsetComponentToWorld.GetLocation();
+				FVector TargetWorldLocation = FVector::ZeroVector;
+				
+				if (bRetainRoomscale)
+				{
+					TargetWorldLocation = OffsetComponentToWorld.GetLocation();
+				}
+				else // Not Retained Roomscale
+				{
+					FVector NewLocation = StoredCameraRotOffset.RotateVector(FVector(VRCapsuleOffset.X, VRCapsuleOffset.Y, 0.0f)) + curCameraLoc;
+					FVector PlanerLocation = NewLocation - lastCameraLoc;
+					PlanerLocation.Z = 0.0f;
+					DifferenceFromLastFrame = GetComponentTransform().TransformVector(PlanerLocation);
+					TargetWorldLocation = LastPosition + DifferenceFromLastFrame;
+				}
+				
 				bool bAllowWalkingCollision = false;
 				if (CharMove != nullptr)
 				{
@@ -638,7 +655,6 @@ void UVRRootComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, 
 				}
 				else
 				{
-
 					// Run this first so we get full fidelity on the relative space calculation
 					FVector NewLocation = StoredCameraRotOffset.RotateVector(FVector(VRCapsuleOffset.X, VRCapsuleOffset.Y, 0.0f)) + curCameraLoc;
 					FVector PlanerLocation = NewLocation - lastCameraLoc;
@@ -1545,7 +1561,7 @@ bool UVRRootComponent::IsLocallyControlled() const
 			GenerateOffsetToWorld();
 		}*/
 
-		if (!owningVRChar->bRetainRoomscale && !IsLocallyControlled())
+		if (!owningVRChar->bRetainRoomscale && !IsLocallyControlled() && !IsNetMode(NM_DedicatedServer))
 		{
 			// Don't smooth this change in mesh position
 			FNetworkPredictionData_Client_Character* ClientData = owningVRChar->GetCharacterMovement()->GetPredictionData_Client_Character();

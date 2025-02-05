@@ -103,7 +103,7 @@ AGrippableStaticMeshActor::AGrippableStaticMeshActor(const FObjectInitializer& O
 
 	// Setting a minimum of every 3rd frame (VR 90fps) for replication consideration
 	// Otherwise we will get some massive slow downs if the replication is allowed to hit the 2 per second minimum default
-	MinNetUpdateFrequency = 30.0f;
+	SetMinNetUpdateFrequency(30.0f);
 }
 
 void AGrippableStaticMeshActor::GetLifetimeReplicatedProps(TArray< class FLifetimeProperty > & OutLifetimeProps) const
@@ -180,86 +180,23 @@ void AGrippableStaticMeshActor::PreReplication(IRepChangedPropertyTracker & Chan
 
 void AGrippableStaticMeshActor::GatherCurrentMovement()
 {
-	if (IsReplicatingMovement() || (RootComponent && RootComponent->GetAttachParent()))
+	Super::GatherCurrentMovement();
+
+	FRepMovement RepMovement = GetReplicatedMovement();
+	if (RootComponent && (!RepMovement.bRepPhysics || RootComponent->GetAttachParent()))
 	{
-		bool bWasAttachmentModified = false;
-		bool bWasRepMovementModified = false;
-
-		AActor* OldAttachParent = AttachmentWeldReplication.AttachParent;
-		USceneComponent* OldAttachComponent = AttachmentWeldReplication.AttachComponent;
-
-		AttachmentWeldReplication.AttachParent = nullptr;
-		AttachmentWeldReplication.AttachComponent = nullptr;
-
-		FRepMovement& RepMovement = GetReplicatedMovement_Mutable();
-
 		UPrimitiveComponent* RootPrimComp = Cast<UPrimitiveComponent>(GetRootComponent());
-		if (RootPrimComp && RootPrimComp->IsSimulatingPhysics())
+
+		if (!RepMovement.bRepPhysics || (!RootPrimComp || !RootPrimComp->IsSimulatingPhysics()))
 		{
-#if UE_WITH_IRIS
-			const bool bPrevRepPhysics = GetReplicatedMovement_Mutable().bRepPhysics;
-#endif // UE_WITH_IRIS
+			bool bWasAttachmentModified = false;
 
-			bool bFoundInCache = false;
+			AActor* OldAttachParent = AttachmentWeldReplication.AttachParent;
+			USceneComponent* OldAttachComponent = AttachmentWeldReplication.AttachComponent;
 
-			UWorld* World = GetWorld();
-			int ServerFrame = 0;
-			if (FPhysScene_Chaos* Scene = static_cast<FPhysScene_Chaos*>(World->GetPhysicsScene()))
-			{
-				if (const FRigidBodyState* FoundState = Scene->GetStateFromReplicationCache(RootPrimComp, ServerFrame))
-				{
-					RepMovement.FillFrom(*FoundState, this, Scene->ReplicationCache.ServerFrame);
-					bFoundInCache = true;
-				}
-			}
+			AttachmentWeldReplication.AttachParent = nullptr;
+			AttachmentWeldReplication.AttachComponent = nullptr;
 
-			if (!bFoundInCache)
-			{
-				// fallback to GT data
-				FRigidBodyState RBState;
-				RootPrimComp->GetRigidBodyState(RBState);
-				RepMovement.FillFrom(RBState, this, 0);
-			}
-
-			// Don't replicate movement if we're welded to another parent actor.
-			// Their replication will affect our position indirectly since we are attached.
-			RepMovement.bRepPhysics = !RootPrimComp->IsWelded();
-
-			if (!RepMovement.bRepPhysics)
-			{
-				if (RootComponent->GetAttachParent() != nullptr)
-				{
-					// Networking for attachments assumes the RootComponent of the AttachParent actor. 
-					// If that's not the case, we can't update this, as the client wouldn't be able to resolve the Component and would detach as a result.
-					AttachmentWeldReplication.AttachParent = RootComponent->GetAttachParent()->GetAttachmentRootActor();
-					if (AttachmentWeldReplication.AttachParent != nullptr)
-					{
-						AttachmentWeldReplication.LocationOffset = RootComponent->GetRelativeLocation();
-						AttachmentWeldReplication.RotationOffset = RootComponent->GetRelativeRotation();
-						AttachmentWeldReplication.RelativeScale3D = RootComponent->GetRelativeScale3D();
-						AttachmentWeldReplication.AttachComponent = RootComponent->GetAttachParent();
-						AttachmentWeldReplication.AttachSocket = RootComponent->GetAttachSocketName();
-						AttachmentWeldReplication.bIsWelded = RootPrimComp ? RootPrimComp->IsWelded() : false;
-
-						// Technically, the values might have stayed the same, but we'll just assume they've changed.
-						bWasAttachmentModified = true;
-					}
-				}
-			}
-
-			// Technically, the values might have stayed the same, but we'll just assume they've changed.
-			bWasRepMovementModified = true;
-
-#if UE_WITH_IRIS
-			// If RepPhysics has changed value then notify the ReplicationSystem
-			if (bPrevRepPhysics != GetReplicatedMovement_Mutable().bRepPhysics)
-			{
-				UpdateReplicatePhysicsCondition();
-			}
-#endif // UE_WITH_IRIS
-		}
-		else if (RootComponent != nullptr)
-		{
 			// If we are attached, don't replicate absolute position, use AttachmentReplication instead.
 			if (RootComponent->GetAttachParent() != nullptr)
 			{
@@ -279,33 +216,16 @@ void AGrippableStaticMeshActor::GatherCurrentMovement()
 					bWasAttachmentModified = true;
 				}
 			}
-			else
+
+			if (bWasAttachmentModified ||
+				OldAttachParent != AttachmentWeldReplication.AttachParent ||
+				OldAttachComponent != AttachmentWeldReplication.AttachComponent)
 			{
-				RepMovement.Location = FRepMovement::RebaseOntoZeroOrigin(RootComponent->GetComponentLocation(), this);
-				RepMovement.Rotation = RootComponent->GetComponentRotation();
-				RepMovement.LinearVelocity = GetVelocity();
-				RepMovement.AngularVelocity = FVector::ZeroVector;
-
-				// Technically, the values might have stayed the same, but we'll just assume they've changed.
-				bWasRepMovementModified = true;
-			}
-
-			bWasRepMovementModified = (bWasRepMovementModified || RepMovement.bRepPhysics);
-			RepMovement.bRepPhysics = false;
-		}
 #if WITH_PUSH_MODEL
-		if (bWasRepMovementModified)
-		{
-			MARK_PROPERTY_DIRTY_FROM_NAME(AActor, ReplicatedMovement, this);
-		}
-
-		if (bWasAttachmentModified ||
-			OldAttachParent != AttachmentWeldReplication.AttachParent ||
-			OldAttachComponent != AttachmentWeldReplication.AttachComponent)
-		{
-			MARK_PROPERTY_DIRTY_FROM_NAME(AGrippableStaticMeshActor, AttachmentWeldReplication, this);
-		}
+				MARK_PROPERTY_DIRTY_FROM_NAME(AGrippableStaticMeshActor, AttachmentWeldReplication, this);
 #endif
+			}
+		}
 	}
 }
 
@@ -689,6 +609,30 @@ void AGrippableStaticMeshActor::Server_GetClientAuthReplication_Implementation(c
 	}
 }
 
+bool AGrippableStaticMeshActor::ShouldWeSkipAttachmentReplication(bool bConsiderHeld) const
+{
+	if ((bConsiderHeld && !VRGripInterfaceSettings.bWasHeld) || GetNetMode() < ENetMode::NM_Client)
+		return false;
+
+	if (VRGripInterfaceSettings.MovementReplicationType == EGripMovementReplicationSettings::ClientSide_Authoritive ||
+		VRGripInterfaceSettings.MovementReplicationType == EGripMovementReplicationSettings::ClientSide_Authoritive_NoRep)
+	{
+		// First return if we are locally held (owner may not have replicated yet)
+		for (const FBPGripPair& Grip : VRGripInterfaceSettings.HoldingControllers)
+		{
+			if (IsValid(Grip.HoldingController) && Grip.HoldingController->IsLocallyControlled())
+			{
+				return true;
+			}
+		}
+
+		// then return if we have a local net owner
+		return HasLocalNetOwner();
+	}
+	else
+		return false;
+}
+
 void AGrippableStaticMeshActor::OnRep_AttachmentReplication()
 {
 	if (bAllowIgnoringAttachOnOwner && (ClientAuthReplicationData.bIsCurrentlyClientAuth || ShouldWeSkipAttachmentReplication()))
@@ -779,6 +723,12 @@ void AGrippableStaticMeshActor::OnRep_ReplicatedMovement()
 	//if (ClientAuthReplicationData.bIsCurrentlyClientAuth && ShouldWeSkipAttachmentReplication(false))
 	{
 		return;
+	}
+
+	if (VRGripInterfaceSettings.HoldingControllers.Num() > 0)
+	{
+		ShouldWeSkipAttachmentReplication();
+		int gg = 0;
 	}
 
 	Super::OnRep_ReplicatedMovement();

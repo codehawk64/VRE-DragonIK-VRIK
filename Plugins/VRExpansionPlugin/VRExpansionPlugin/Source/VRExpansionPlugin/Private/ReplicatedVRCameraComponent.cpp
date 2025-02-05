@@ -407,6 +407,10 @@ void UReplicatedVRCameraComponent::TickComponent(float DeltaTime, enum ELevelTic
 						ReplicatedCameraTransform.Rotation = RelativeRot;
 					}
 
+#if WITH_PUSH_MODEL
+					MARK_PROPERTY_DIRTY_FROM_NAME(UReplicatedVRCameraComponent, ReplicatedCameraTransform, this);
+#endif
+
 					if (GetNetMode() == NM_Client)
 					{
 						AVRBaseCharacter* OwningChar = Cast<AVRBaseCharacter>(GetOwner());
@@ -430,7 +434,7 @@ void UReplicatedVRCameraComponent::TickComponent(float DeltaTime, enum ELevelTic
 	}
 }
 
-void UReplicatedVRCameraComponent::HandleXRCamera()
+void UReplicatedVRCameraComponent::HandleXRCamera(float DeltaTime)
 {
 	bool bIsLocallyControlled = IsLocallyControlled();
 
@@ -458,7 +462,7 @@ void UReplicatedVRCameraComponent::HandleXRCamera()
 				{
 					FQuat Orientation;
 					FVector Position;
-					if (XRCamera->UpdatePlayerCamera(Orientation, Position))
+					if (XRCamera->UpdatePlayerCamera(Orientation, Position, DeltaTime))
 					{
 						if (HasTrackingParameters())
 						{

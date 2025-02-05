@@ -75,6 +75,9 @@ void UGS_Melee::UpdateDualHandInfo()
 	{
 		if (NumControllers > 1)
 		{
+			if (!Grip.IsValid())
+				continue;
+
 			FBPActorGripInformation* GripInfo = Grip.HoldingController->GetGripPtrByID(Grip.GripID);
 			if (GripInfo)
 			{
@@ -454,12 +457,6 @@ void UGS_Melee::OnGripRelease_Implementation(UGripMotionControllerComponent* Rel
 	TArray<FBPGripPair> HoldingControllers;
 	IVRGripInterface::Execute_IsHeld(GetParent(), HoldingControllers, bIsHeld);
 
-	//if(!bAlwaysTickPenetration)
-		//SetTickEnabled(false);
-
-	//if (!bAlwaysTickPenetration)
-	//	bCheckLodge = false;
-
 	if (SecondaryHand.IsValid() && SecondaryHand.HoldingController == ReleasingController && SecondaryHand.GripID == GripInformation.GripID)
 	{
 		SecondaryHand = FBPGripPair();
@@ -477,6 +474,37 @@ void UGS_Melee::OnGripRelease_Implementation(UGripMotionControllerComponent* Rel
 		}
 	}
 
+	if (COMType != EVRMeleeComType::VRPMELEECOM_Normal)
+	{
+		if (UPrimitiveComponent* PrimComp = Cast<UPrimitiveComponent>(GetParentSceneComp()))
+		{
+			if (FBodyInstance* rBodyInstance = PrimComp->GetBodyInstance())
+			{
+				if (rBodyInstance->IsValidBodyInstance() && rBodyInstance->BodySetup.IsValid())
+				{
+
+					// If bound we need to cancel out
+					bool bWasBound = false;
+					if (PrimaryHand.IsValid())
+					{
+						if (rBodyInstance->OnRecalculatedMassProperties().IsBoundToObject(PrimaryHand.HoldingController))
+						{
+							rBodyInstance->OnRecalculatedMassProperties().RemoveAll(this);
+							bWasBound = true;
+						}
+					}
+
+					rBodyInstance->UpdateMassProperties();
+
+					// Restore binding
+					if (bWasBound)
+					{
+						rBodyInstance->OnRecalculatedMassProperties().AddUObject(PrimaryHand.HoldingController, &UGripMotionControllerComponent::OnGripMassUpdated);
+					}
+				}
+			}
+		}
+	}
 
 	if (PrimaryHand.IsValid())
 	{
@@ -485,6 +513,13 @@ void UGS_Melee::OnGripRelease_Implementation(UGripMotionControllerComponent* Rel
 		if (HandleInfo)
 		{
 			FBPActorGripInformation * GripInfo = PrimaryHand.HoldingController->GetGripPtrByID(PrimaryHand.GripID);
+
+			// Reset custom COM changes
+			if (!SecondaryHand.IsValid())
+			{
+				HandleInfo->bSkipResettingCom = false;
+				UpdateDualHandInfo();
+			}
 
 			if (GripInfo)
 			{
@@ -766,8 +801,8 @@ void UGS_Melee::HandlePostPhysicsHandle(UGripMotionControllerComponent* Gripping
 			PrimaryHandPhysicsSettings.FillTo(HandleInfo);
 		}
 
-		//HandleInfo->bSetCOM = false; // Should i remove this?
-		HandleInfo->bSkipResettingCom = false;
+		if (COMType != EVRMeleeComType::VRPMELEECOM_Normal)
+			SetComBetweenHands(GrippingController, HandleInfo);
 	}
 }
 
@@ -798,6 +833,10 @@ void UGS_Melee::SetComBetweenHands(UGripMotionControllerComponent* GrippingContr
 
 		HandleInfo->bSetCOM = true; // Should i remove this?
 		HandleInfo->bSkipResettingCom = true;
+	}
+	else
+	{
+		HandleInfo->bSkipResettingCom = false;
 	}
 }
 

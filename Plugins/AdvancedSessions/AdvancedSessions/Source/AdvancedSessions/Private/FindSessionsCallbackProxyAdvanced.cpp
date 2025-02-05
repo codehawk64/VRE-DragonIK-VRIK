@@ -16,7 +16,7 @@ UFindSessionsCallbackProxyAdvanced::UFindSessionsCallbackProxyAdvanced(const FOb
 	bIsOnSecondSearch = false;
 }
 
-UFindSessionsCallbackProxyAdvanced* UFindSessionsCallbackProxyAdvanced::FindSessionsAdvanced(UObject* WorldContextObject, class APlayerController* PlayerController, int MaxResults, bool bUseLAN, EBPServerPresenceSearchType ServerTypeToSearch, const TArray<FSessionsSearchSetting> &Filters, bool bEmptyServersOnly, bool bNonEmptyServersOnly, bool bSecureServersOnly, bool bSearchLobbies, int MinSlotsAvailable)
+UFindSessionsCallbackProxyAdvanced* UFindSessionsCallbackProxyAdvanced::FindSessionsAdvanced(UObject* WorldContextObject, class APlayerController* PlayerController, int MaxResults, bool bUseLAN, EBPServerPresenceSearchType ServerTypeToSearch, const TArray<FSessionsSearchSetting> &Filters, bool bEmptyServersOnly, bool bNonEmptyServersOnly, bool bSecureServersOnly, /*bool bSearchLobbies,*/ int MinSlotsAvailable)
 {
 	UFindSessionsCallbackProxyAdvanced* Proxy = NewObject<UFindSessionsCallbackProxyAdvanced>();	
 	Proxy->PlayerControllerWeakPtr = PlayerController;
@@ -28,7 +28,7 @@ UFindSessionsCallbackProxyAdvanced* UFindSessionsCallbackProxyAdvanced::FindSess
 	Proxy->bEmptyServersOnly = bEmptyServersOnly,
 	Proxy->bNonEmptyServersOnly = bNonEmptyServersOnly;
 	Proxy->bSecureServersOnly = bSecureServersOnly;
-	Proxy->bSearchLobbies = bSearchLobbies;
+	//Proxy->bSearchLobbies = bSearchLobbies;
 	Proxy->MinSlotsAvailable = MinSlotsAvailable;
 	return Proxy;
 }
@@ -86,7 +86,6 @@ void UFindSessionsCallbackProxyAdvanced::Activate()
 			/** #define SEARCH_SWITCH_SELECTION_METHOD FName(TEXT("SWITCHSELECTIONMETHOD"))*/
 			/** Whether to use lobbies vs sessions */
 			/** #define SEARCH_LOBBIES FName(TEXT("LOBBYSEARCH"))*/
-
 			if (bEmptyServersOnly)
 				tem.Set(SEARCH_EMPTY_SERVERS_ONLY, true, EOnlineComparisonOp::Equals);
 
@@ -114,9 +113,9 @@ void UFindSessionsCallbackProxyAdvanced::Activate()
 
 			case EBPServerPresenceSearchType::ClientServersOnly:
 			{
-				tem.Set(SEARCH_PRESENCE, true, EOnlineComparisonOp::Equals);
+				//tem.Set(SEARCH_PRESENCE, true, EOnlineComparisonOp::Equals);
 				
-				if (bSearchLobbies && !IOnlineSubsystem::DoesInstanceExist("STEAM"))
+				//if (bSearchLobbies)// && !IOnlineSubsystem::DoesInstanceExist("STEAM"))
 					tem.Set(SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
 			}
 			break;
@@ -140,9 +139,9 @@ void UFindSessionsCallbackProxyAdvanced::Activate()
 
 				FOnlineSearchSettingsEx DedicatedOnly = tem;
 
-				tem.Set(SEARCH_PRESENCE, true, EOnlineComparisonOp::Equals);
+				//tem.Set(SEARCH_PRESENCE, true, EOnlineComparisonOp::Equals);
 
-				if (bSearchLobbies && !IOnlineSubsystem::DoesInstanceExist("STEAM"))
+				//if (bSearchLobbies)// && !IOnlineSubsystem::DoesInstanceExist("STEAM"))
 					tem.Set(SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
 
 				//DedicatedOnly.Set(SEARCH_DEDICATED_ONLY, true, EOnlineComparisonOp::Equals);
@@ -225,6 +224,14 @@ void UFindSessionsCallbackProxyAdvanced::OnCompleted(bool bSuccess)
 
 					FBlueprintSessionResult BPResult;
 					BPResult.OnlineResult = Result;
+
+					// Temp for 5.5, force the values if epic isn't setting them, lobbies should always have these true
+					if (ServerSearchType != EBPServerPresenceSearchType::DedicatedServersOnly )
+					{
+						BPResult.OnlineResult.Session.SessionSettings.bUseLobbiesIfAvailable = true;
+						BPResult.OnlineResult.Session.SessionSettings.bUsesPresence = true;
+					}
+
 					SessionSearchResults.AddUnique(BPResult);
 				}
 				if (!bRunSecondSearch)
