@@ -5,6 +5,9 @@ Google doc link detailing some useful info relevant to migrating content from th
 https://docs.google.com/document/d/1lBZXVa9KB47oCXRmiiz43ZfMsmGO3EzsZ_RnlbxDPyE/edit?tab=t.0
 
 
+Demo Executable (For PC) : https://drive.google.com/file/d/1Anh4GIlz1uz5CB_OgNuoDrZTrV6smQzh/view
+
+
 Current compatible versions for template: Latest Engine Version (Template is not kept to as many compatible versions as the plugin itself).
 
 * Right click on VRExpPluginExample.uproject and switch to your preferred (compatible) engine version.
